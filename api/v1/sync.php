@@ -4,6 +4,8 @@
  * Handles Batched Push, Incremental Pull (Cursor-based), and Tombstone Propagation.
  */
 
+require_once YBT_ROOT . '/services/customer-service.php';
+
 $method = $_SERVER['REQUEST_METHOD'];
 $tenantId = TenantContext::id();
 $userId = (int)($authenticatedUser['user_id'] ?? $authenticatedUser['id'] ?? 1);

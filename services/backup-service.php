@@ -2,6 +2,7 @@
 /**
  * YBT Management Software — Backup Service
  * Creates structured SQL / JSON data backups saved in protected storage
+ * Properly handles parent and child relational queries per business.
  */
 
 class BackupService {
@@ -35,7 +36,22 @@ class BackupService {
         fwrite($handle, "SET FOREIGN_KEY_CHECKS=0;\n\n");
 
         foreach ($tables as $table) {
-            $rows = Database::fetchAll("SELECT * FROM `{$table}` WHERE business_id = ?", [$businessId]);
+            // Relational scoping for tables without direct business_id column
+            if ($table === 'businesses') {
+                $sql = "SELECT * FROM `businesses` WHERE id = ?";
+            } elseif ($table === 'quotation_items') {
+                $sql = "SELECT qi.* FROM `quotation_items` qi JOIN `quotations` q ON qi.quotation_id = q.id WHERE q.business_id = ?";
+            } elseif ($table === 'invoice_items') {
+                $sql = "SELECT ii.* FROM `invoice_items` ii JOIN `invoices` i ON ii.invoice_id = i.id WHERE i.business_id = ?";
+            } elseif ($table === 'payment_allocations') {
+                $sql = "SELECT pa.* FROM `payment_allocations` pa JOIN `payments` p ON pa.payment_id = p.id WHERE p.business_id = ?";
+            } elseif ($table === 'role_permissions') {
+                $sql = "SELECT rp.* FROM `role_permissions` rp JOIN `roles` r ON rp.role_id = r.id WHERE r.business_id = ?";
+            } else {
+                $sql = "SELECT * FROM `{$table}` WHERE business_id = ?";
+            }
+
+            $rows = Database::fetchAll($sql, [$businessId]);
             if (empty($rows)) continue;
 
             fwrite($handle, "-- Table: `{$table}`\n");

@@ -1,19 +1,23 @@
 <?php
 /**
- * YBT Management Software — Master Automated Test Runner
+ * YBT Management Software — Master Automated Test Runner (All 8 Test Suites)
  */
 
 define('YBT_ROOT', dirname(__DIR__));
 
 echo "====================================================\n";
-echo "   YBT Management Software — Phase 2 Test Runner    \n";
+echo "   YBT Management Software — Master Verification    \n";
 echo "====================================================\n\n";
 
 $tests = [
-    'Tenant Isolation'   => __DIR__ . '/test_tenant_isolation.php',
-    'Encryption Security' => __DIR__ . '/test_encryption.php',
-    'CSRF Protection'    => __DIR__ . '/test_csrf.php',
-    'Restore Safety'     => __DIR__ . '/test_restore_safety.php',
+    'Tenant Isolation Foundation'    => __DIR__ . '/test_tenant_isolation.php',
+    'Authenticated Encryption (GCM)' => __DIR__ . '/test_encryption.php',
+    'CSRF Protection Security'       => __DIR__ . '/test_csrf.php',
+    'Restore Safety Controls'        => __DIR__ . '/test_restore_safety.php',
+    'Database Migration & Rollback'  => __DIR__ . '/test_database_migration.php',
+    'Deep Multi-Tenant Isolation'    => __DIR__ . '/test_multi_tenant_deep.php',
+    'Real HTTP REST API v1 Suite'    => __DIR__ . '/test_api_http.php',
+    'Existing CRM Full Regression'   => __DIR__ . '/test_crm_regression.php',
 ];
 
 $passedCount = 0;
@@ -32,10 +36,10 @@ foreach ($tests as $title => $script) {
 }
 
 echo "\n====================================================\n";
-echo "Test Execution Summary:\n";
-echo "Total Suites: " . count($tests) . "\n";
-echo "Passed:       {$passedCount}\n";
-echo "Failed:       {$failedCount}\n";
+echo "Master Verification Execution Summary:\n";
+echo "Total Suites Executed: " . count($tests) . "\n";
+echo "Passed:                {$passedCount}\n";
+echo "Failed:                {$failedCount}\n";
 echo "====================================================\n";
 
 exit($failedCount > 0 ? 1 : 0);

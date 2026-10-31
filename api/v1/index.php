@@ -80,19 +80,13 @@ $publicRoutes = [
 ];
 
 try {
-    // 1. Health check routing
+    // 1. Health check routing (Zero Auth)
     if ($route === '/' || $route === '/health') {
         require __DIR__ . '/health.php';
         exit;
     }
 
-    // 2. Authentication endpoints routing
-    if (str_starts_with($route, '/auth/')) {
-        require __DIR__ . '/auth.php';
-        exit;
-    }
-
-    // 3. Bearer Token Verification for Protected Routes
+    // 2. Bearer Token Verification for All Other Routes
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
     $token = '';
     if (preg_match('/Bearer\s+(\S+)/i', $authHeader, $matches)) {
@@ -132,8 +126,15 @@ try {
         TenantContext::set((int)Auth::businessId());
     }
 
+    // Reject unauthenticated requests to protected endpoints
     if (!TenantContext::has() && !in_array($route, $publicRoutes, true)) {
         apiError('Unauthorized: Missing or invalid Bearer token.', 'UNAUTHORIZED', 401);
+    }
+
+    // 3. Authentication endpoints routing
+    if (str_starts_with($route, '/auth/')) {
+        require __DIR__ . '/auth.php';
+        exit;
     }
 
     // 4. Dispatch Protected Modules
