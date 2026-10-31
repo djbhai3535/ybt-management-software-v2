@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YBT Management Software — Windows Desktop Edition</title>
+    <style>
+        :root {
+            --primary: #0EA5E9;
+            --primary-hover: #0284C7;
+            --bg: #F8FAFC;
+            --surface: #FFFFFF;
+            --border: #E2E8F0;
+            --text: #0F172A;
+            --text-muted: #64748B;
+            --success: #10B981;
+            --warning: #F59E0B;
+            --danger: #EF4444;
+        }
+
+        [data-theme="dark"] {
+            --primary: #38BDF8;
+            --primary-hover: #0EA5E9;
+            --bg: #0F172A;
+            --surface: #1E293B;
+            --border: #334155;
+            --text: #F8FAFC;
+            --text-muted: #94A3B8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Top Desktop App Navigation Bar */
+        .desktop-header {
+            height: 48px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 1.25rem;
+            user-select: none;
+            -webkit-app-region: drag;
+        }
+
+        .brand-section {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+        }
+
+        .brand-icon {
+            width: 26px;
+            height: 26px;
+            border-radius: 6px;
+            background: linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: 700;
+            font-size: 0.85rem;
+        }
+
+        .brand-name {
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: var(--text);
+            letter-spacing: -0.01em;
+        }
+
+        .header-status {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            -webkit-app-region: no-drag;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.25rem 0.65rem;
+            border-radius: 20px;
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .status-badge.offline {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+            border-color: rgba(245, 158, 11, 0.25);
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background-color: currentColor;
+        }
+
+        .sync-badge {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        /* Main Viewport Container */
+        .desktop-viewport {
+            flex: 1;
+            position: relative;
+            background: var(--bg);
+        }
+
+        iframe#crm-frame {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <header class="desktop-header">
+        <div class="brand-section">
+            <div class="brand-icon">Y</div>
+            <span class="brand-name">YBT Management Software</span>
+            <span style="font-size: 0.72rem; color: var(--text-muted); margin-left: 0.5rem; background: var(--bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border);">Desktop v1.0</span>
+        </div>
+
+        <div class="header-status">
+            <div class="status-badge" id="network-badge">
+                <span class="status-dot"></span>
+                <span id="network-text">Online</span>
+            </div>
+
+            <div class="sync-badge" id="sync-info">
+                <span id="sync-icon">⚡</span>
+                <span id="sync-text">All changes synced</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="desktop-viewport">
+        <!-- Frame pointing to local micro-engine or cloud server -->
+        <iframe id="crm-frame" src="http://127.0.0.1:8088/dashboard.php"></iframe>
+    </main>
+
+    <script>
+        // Automatic Network Status Monitor
+        function updateNetworkStatus() {
+            const isOnline = navigator.onLine;
+            const badge = document.getElementById('network-badge');
+            const text = document.getElementById('network-text');
+            const syncText = document.getElementById('sync-text');
+
+            if (isOnline) {
+                badge.className = 'status-badge';
+                text.textContent = 'Online';
+                syncText.textContent = 'Auto-sync active';
+            } else {
+                badge.className = 'status-badge offline';
+                text.textContent = 'Offline Mode';
+                syncText.textContent = 'Saving locally to SQLite';
+            }
+        }
+
+        window.addEventListener('online', updateNetworkStatus);
+        window.addEventListener('offline', updateNetworkStatus);
+        updateNetworkStatus();
+    </script>
+</body>
+</html>

@@ -20,6 +20,7 @@ $tests = [
     'Existing CRM Full Regression'   => __DIR__ . '/test_crm_regression.php',
     'Phase 3 Auth & Management'      => __DIR__ . '/test_phase3_auth.php',
     'Phase 3 Real HTTP API'          => __DIR__ . '/test_phase3_api.php',
+    'Phase 4 Desktop & Offline Sync' => __DIR__ . '/test_phase4_desktop_sync.php',
 ];
 
 $passedCount = 0;

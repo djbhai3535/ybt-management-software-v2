@@ -1,0 +1,14 @@
+{
+  "name": "ybt-management-desktop",
+  "version": "1.0.0",
+  "description": "YBT Management Software — Commercial Windows Desktop Edition",
+  "private": true,
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

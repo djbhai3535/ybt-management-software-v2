@@ -53,15 +53,27 @@ if ($method === 'POST') {
             $serverStatus = 'synced';
 
             // Process based on entity type
-            if ($entityType === 'customers' && $opType === 'insert') {
-                $customerId = CustomerService::create($tenantId, $payload, $userId);
-                try {
-                    Database::query(
-                        "UPDATE customers SET sync_uuid = ?, sync_version = sync_version + 1 WHERE id = ?",
-                        [$entityUuid, $customerId]
-                    );
-                } catch (Throwable $t) {}
-            } elseif ($entityType === 'customers' && $opType === 'delete') {
+            $opTypeLower = strtolower($opType);
+            if ($entityType === 'customers' && $opTypeLower === 'insert') {
+                $existingCust = Database::fetch("SELECT id FROM customers WHERE business_id = ? AND sync_uuid = ?", [$tenantId, $entityUuid]);
+                if (!$existingCust) {
+                    $customerId = CustomerService::create($tenantId, $payload, $userId);
+                    try {
+                        Database::query(
+                            "UPDATE customers SET sync_uuid = ?, sync_version = sync_version + 1 WHERE id = ?",
+                            [$entityUuid, $customerId]
+                        );
+                    } catch (Throwable $t) {}
+                }
+            } elseif ($entityType === 'customers' && $opTypeLower === 'update') {
+                $existingCust = Database::fetch("SELECT id FROM customers WHERE business_id = ? AND sync_uuid = ?", [$tenantId, $entityUuid]);
+                if ($existingCust) {
+                    CustomerService::update($existingCust['id'], $tenantId, $payload);
+                    try {
+                        Database::query("UPDATE customers SET sync_version = sync_version + 1 WHERE id = ?", [$existingCust['id']]);
+                    } catch (Throwable $t) {}
+                }
+            } elseif ($entityType === 'customers' && $opTypeLower === 'delete') {
                 // Record tombstone
                 try {
                     Database::insert('sync_tombstones', [

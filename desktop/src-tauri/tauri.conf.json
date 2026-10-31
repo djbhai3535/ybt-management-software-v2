@@ -1,0 +1,46 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/tooling/cli/schema.json",
+  "productName": "YBT Management Software",
+  "version": "1.0.0",
+  "identifier": "com.ybt.management.desktop",
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "frontendDist": "../app"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "YBT Management Software — Commercial Desktop CRM",
+        "width": 1366,
+        "height": 820,
+        "minWidth": 1024,
+        "minHeight": 680,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "focus": true,
+        "theme": "Auto"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' http://127.0.0.1:* http://localhost:*; script-src 'self' 'unsafe-inline' http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: http://127.0.0.1:*; connect-src 'self' http://127.0.0.1:* https://*; font-src 'self' data:;"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    }
+  }
+}
