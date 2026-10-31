@@ -14,7 +14,7 @@ class Auth {
 
         // Find user
         $user = Database::fetch(
-            "SELECT u.*, r.slug as role_slug, b.name as business_name 
+            "SELECT u.*, r.slug as role_slug, b.name as business_name, b.status as business_status, b.onboarding_step 
              FROM users u 
              JOIN roles r ON u.role_id = r.id 
              JOIN businesses b ON u.business_id = b.id 
@@ -29,6 +29,21 @@ class Auth {
         // Check account active
         if (!$user['is_active']) {
             return ['success' => false, 'error' => 'This account has been deactivated.'];
+        }
+
+        // Check suspension
+        if (($user['verification_status'] ?? '') === 'suspended' || ($user['business_status'] ?? '') === 'suspended') {
+            return ['success' => false, 'error' => 'Your account or business has been suspended. Please contact support.'];
+        }
+
+        // Check email verification status
+        if (($user['verification_status'] ?? 'verified') === 'pending') {
+            return [
+                'success' => false,
+                'error' => 'Please verify your email address before logging in.',
+                'pending_verification' => true,
+                'email' => $user['email']
+            ];
         }
 
         // Check lockout
@@ -69,8 +84,10 @@ class Auth {
             [$user['id']]
         );
 
-        // Regenerate session ID
-        session_regenerate_id(true);
+        // Regenerate session ID if headers not sent
+        if (!headers_sent() && session_status() === PHP_SESSION_ACTIVE) {
+            session_regenerate_id(true);
+        }
 
         // Store session
         $_SESSION['user_id'] = $user['id'];
@@ -188,7 +205,7 @@ class Auth {
             );
         }
         $_SESSION = [];
-        if (ini_get('session.use_cookies')) {
+        if (ini_get('session.use_cookies') && !headers_sent()) {
             $p = session_get_cookie_params();
             setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], $p['secure'], $p['httponly']);
         }

@@ -18,6 +18,8 @@ $tests = [
     'Deep Multi-Tenant Isolation'    => __DIR__ . '/test_multi_tenant_deep.php',
     'Real HTTP REST API v1 Suite'    => __DIR__ . '/test_api_http.php',
     'Existing CRM Full Regression'   => __DIR__ . '/test_crm_regression.php',
+    'Phase 3 Auth & Management'      => __DIR__ . '/test_phase3_auth.php',
+    'Phase 3 Real HTTP API'          => __DIR__ . '/test_phase3_api.php',
 ];
 
 $passedCount = 0;

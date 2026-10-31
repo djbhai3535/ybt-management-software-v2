@@ -4,6 +4,7 @@
  */
 
 require_once __DIR__ . '/includes/bootstrap.php';
+require_once __DIR__ . '/services/staff-service.php';
 
 Auth::requireLogin();
 Permissions::require('managers.view');
@@ -52,6 +53,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+
+// Handle Invite Staff POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'invite_staff') {
+    Permissions::requireOwner();
+    if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
+        Flash::error('Invalid security token.');
+    } else {
+        $name = trim($_POST['name'] ?? '');
+        $email = strtolower(trim($_POST['email'] ?? ''));
+        $roleId = (int)($_POST['role_id'] ?? 0);
+
+        $res = StaffService::invite($businessId, $userId, $email, $name, $roleId);
+        if ($res['success']) {
+            Flash::success("Staff invitation dispatched successfully to {$email}.");
+        } else {
+            Flash::error($res['error']);
+        }
+        header('Location: ' . url('managers.php'));
+        exit;
+    }
+}
+
+// Handle Toggle Staff Status POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'toggle_staff_status') {
+    Permissions::requireOwner();
+    if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
+        Flash::error('Invalid security token.');
+    } else {
+        $targetUserId = (int)($_POST['user_id'] ?? 0);
+        $newStatus = (int)($_POST['is_active'] ?? 0);
+
+        $res = StaffService::updateStatus($businessId, $targetUserId, $newStatus);
+        if ($res['success']) {
+            Flash::success("Staff member status updated successfully.");
+        } else {
+            Flash::error($res['error']);
+        }
+        header('Location: ' . url('managers.php'));
+        exit;
+    }
+}
+
 // Handle Update Role Permissions Matrix
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_permissions') {
     Permissions::requireOwner();
@@ -80,6 +123,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         exit;
     }
 }
+
+
+$pendingInvitations = StaffService::listInvitations($businessId);
+$availableRoles = Database::fetchAll("SELECT id, name, slug FROM roles WHERE business_id = ? OR is_system = 1 ORDER BY id ASC", [$businessId]);
 
 // Fetch users
 $users = Database::fetchAll(
@@ -173,6 +220,48 @@ require YBT_ROOT . '/includes/header.php';
     </div>
 </div>
 
+
+<!-- Pending Invitations Card -->
+<?php if (!empty($pendingInvitations)): ?>
+<div class="card mb-4">
+    <div class="card-header">
+        <h3 class="card-title"><i class="ti ti-mail-opened mr-1 text-warning"></i> Pending Staff Invitations</h3>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Invited Name</th>
+                        <th>Email</th>
+                        <th>Assigned Role</th>
+                        <th>Status</th>
+                        <th>Invited By</th>
+                        <th>Expires At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($pendingInvitations as $inv): ?>
+                    <tr>
+                        <td><strong><?= e($inv['name']) ?></strong></td>
+                        <td><?= e($inv['email']) ?></td>
+                        <td><span class="badge badge-secondary"><?= e($inv['role_name']) ?></span></td>
+                        <td>
+                            <span class="badge badge-<?= $inv['status'] === 'accepted' ? 'success' : ($inv['status'] === 'pending' ? 'warning' : 'danger') ?>">
+                                <?= ucfirst($inv['status']) ?>
+                            </span>
+                        </td>
+                        <td><?= e($inv['invited_by_name'] ?? 'System') ?></td>
+                        <td><?= date('M d, Y H:i', strtotime($inv['expires_at'])) ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <!-- Manager Role Permission Matrix (Owner Only) -->
 <?php if (Auth::isOwner()): ?>
 <div class="card">
@@ -216,6 +305,47 @@ require YBT_ROOT . '/includes/header.php';
     </div>
 </div>
 <?php endif; ?>
+
+
+<!-- Invite Staff Modal -->
+<div class="modal-backdrop" id="invite-staff-modal">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title"><i class="ti ti-mail-forward mr-1 text-primary"></i> Invite Staff via Email</h3>
+            <button type="button" class="modal-close" data-modal-close>&times;</button>
+        </div>
+        <form action="<?= url('managers.php') ?>" method="POST">
+            <?= Csrf::field() ?>
+            <input type="hidden" name="action" value="invite_staff">
+
+            <div class="modal-body">
+                <div class="form-group mb-3">
+                    <label class="form-label required">Full Name</label>
+                    <input type="text" name="name" class="form-input" placeholder="e.g. Ali Khan" required>
+                </div>
+                <div class="form-group mb-3">
+                    <label class="form-label required">Email Address</label>
+                    <input type="email" name="email" class="form-input" placeholder="staff@company.com" required>
+                </div>
+                <div class="form-group mb-3">
+                    <label class="form-label required">Select Role</label>
+                    <select name="role_id" class="form-select" required>
+                        <?php foreach ($availableRoles as $r): ?>
+                            <?php if ($r['slug'] !== 'owner'): ?>
+                                <option value="<?= (int)$r['id'] ?>"><?= e($r['name']) ?></option>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+
+            <div class="modal-footer d-flex justify-end gap-2">
+                <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
+                <button type="submit" class="btn btn-primary"><i class="ti ti-send mr-1"></i> Send Invitation</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <!-- Add Manager Modal -->
 <div class="modal-backdrop" id="add-manager-modal">

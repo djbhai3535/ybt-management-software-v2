@@ -77,6 +77,12 @@ $publicRoutes = [
     '/health',
     '/auth/login',
     '/auth/refresh',
+    '/auth/register',
+    '/auth/verify-email',
+    '/auth/resend-verification',
+    '/auth/forgot-password',
+    '/auth/reset-password',
+    '/auth/accept-invitation',
 ];
 
 try {
@@ -155,6 +161,16 @@ try {
 
     if (str_starts_with($route, '/sync')) {
         require __DIR__ . '/sync.php';
+        exit;
+    }
+
+    if (str_starts_with($route, '/business')) {
+        require __DIR__ . '/business.php';
+        exit;
+    }
+
+    if (str_starts_with($route, '/staff')) {
+        require __DIR__ . '/staff.php';
         exit;
     }
 

@@ -11,6 +11,7 @@ if (Auth::check()) {
 }
 
 $error = '';
+$pendingVerificationEmail = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
         $error = 'Invalid security token. Please refresh and try again.';
@@ -24,10 +25,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result = Auth::attempt($email, $password);
             if ($result['success']) {
                 Flash::success('Welcome back, ' . $result['user']['name'] . '!');
+                if (empty($result['user']['onboarding_completed'])) {
+                    header('Location: ' . url('onboarding.php'));
+                    exit;
+                }
                 header('Location: ' . url('dashboard.php'));
                 exit;
             } else {
                 $error = $result['error'];
+                if (!empty($result['pending_verification'])) {
+                    $pendingVerificationEmail = $result['email'] ?? '';
+                }
             }
         }
     }
@@ -358,7 +366,16 @@ body.public-layout {
     <?php if (!empty($error)): ?>
         <div class="clean-alert">
             <i class="ti ti-alert-circle"></i>
-            <div><?= e($error) ?></div>
+            <div>
+                <?= e($error) ?>
+                <?php if (!empty($pendingVerificationEmail)): ?>
+                    <div style="margin-top: 0.35rem;">
+                        <a href="<?= url('resend-verification.php?email=' . urlencode($pendingVerificationEmail)) ?>" style="color: inherit; text-decoration: underline; font-weight: 600;">
+                            Resend verification link
+                        </a>
+                    </div>
+                <?php endif; ?>
+            </div>
         </div>
     <?php endif; ?>
 
@@ -394,6 +411,7 @@ body.public-layout {
                 <input type="checkbox" name="remember" checked>
                 <span>Remember me</span>
             </label>
+            <a href="<?= url('forgot-password.php') ?>" style="color: var(--color-primary); text-decoration: none; font-size: 0.8125rem;">Forgot password?</a>
         </div>
 
         <button type="submit" class="clean-btn-submit" id="btn-submit">
@@ -401,6 +419,9 @@ body.public-layout {
             <i class="ti ti-arrow-right"></i>
         </button>
     </form>
+    <div style="text-align: center; margin-top: 1.25rem; font-size: 0.85rem; color: var(--color-text-muted);">
+        Don't have an account? <a href="<?= url('register.php') ?>" style="color: var(--color-primary); text-decoration: none; font-weight: 600;">Register your shop</a>
+    </div>
 
     <!-- Quick Demo Accounts -->
     <div class="clean-demo-divider">
