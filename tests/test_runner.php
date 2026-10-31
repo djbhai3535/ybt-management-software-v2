@@ -22,6 +22,7 @@ $tests = [
     'Phase 3 Real HTTP API'          => __DIR__ . '/test_phase3_api.php',
     'Phase 4 Desktop & Offline Sync' => __DIR__ . '/test_phase4_desktop_sync.php',
     'Portable PHP & Process Lifecyle'=> __DIR__ . '/test_portable_process.php',
+    'Phase 4.2 Complete Multi-Sync'  => __DIR__ . '/test_phase4_complete_sync.php',
 ];
 
 $passedCount = 0;
