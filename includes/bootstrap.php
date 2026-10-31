@@ -47,6 +47,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // Load includes
+require_once YBT_ROOT . '/includes/tenant-context.php';
 require_once YBT_ROOT . '/includes/db.php';
 require_once YBT_ROOT . '/includes/functions.php';
 require_once YBT_ROOT . '/includes/formatting.php';
@@ -56,6 +57,15 @@ require_once YBT_ROOT . '/includes/validation.php';
 require_once YBT_ROOT . '/includes/activity-log.php';
 require_once YBT_ROOT . '/includes/auth.php';
 require_once YBT_ROOT . '/includes/permissions.php';
+
+// Auto-bind TenantContext if user session is active
+if (!empty($_SESSION['business_id']) && (int)$_SESSION['business_id'] > 0) {
+    TenantContext::set((int)$_SESSION['business_id'], [
+        'name' => $_SESSION['business_name'] ?? '',
+        'user_id' => $_SESSION['user_id'] ?? null,
+        'role_slug' => $_SESSION['role_slug'] ?? '',
+    ]);
+}
 
 // Ensure storage directories exist
 $storageDirs = ['invoices', 'uploads', 'exports', 'backups', 'logs', 'ai-cache', 'temp'];

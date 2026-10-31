@@ -2,6 +2,7 @@
 /**
  * YBT Management Software — Customer Service
  * Handles customer CRUD, ledger balance calculations, and history
+ * Strictly scoped by TenantContext to prevent cross-tenant leakage.
  */
 
 class CustomerService {
@@ -9,38 +10,40 @@ class CustomerService {
      * Get paginated customer list with filters
      */
     public static function getAll(int $businessId, array $filters = [], int $page = 1, int $perPage = 15): array {
-        $where = ["business_id = ?"];
+        TenantContext::assertMatches($businessId);
+
+        $where = ["c.business_id = ?"];
         $params = [$businessId];
 
         if (!empty($filters['search'])) {
             $term = '%' . trim($filters['search']) . '%';
-            $where[] = "(name LIKE ? OR company_name LIKE ? OR email LIKE ? OR phone LIKE ? OR gstin LIKE ?)";
+            $where[] = "(c.name LIKE ? OR c.company_name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR c.gstin LIKE ?)";
             $params = array_merge($params, [$term, $term, $term, $term, $term]);
         }
 
         if (!empty($filters['status']) && $filters['status'] !== 'all') {
-            $where[] = "status = ?";
+            $where[] = "c.status = ?";
             $params[] = $filters['status'];
         }
 
         if (!empty($filters['city'])) {
-            $where[] = "billing_city = ?";
+            $where[] = "c.billing_city = ?";
             $params[] = $filters['city'];
         }
 
         $whereClause = implode(' AND ', $where);
 
         // Count total
-        $countRow = Database::fetch("SELECT COUNT(*) as cnt FROM customers WHERE {$whereClause}", $params);
+        $countRow = Database::fetch("SELECT COUNT(*) as cnt FROM customers c WHERE {$whereClause}", $params);
         $total = $countRow['cnt'] ?? 0;
 
-        // Fetch paginated
+        // Fetch paginated with strictly tenant-scoped invoice subqueries
         $offset = ($page - 1) * $perPage;
         $sql = "SELECT c.*, 
-                (SELECT COUNT(*) FROM invoices WHERE customer_id = c.id) as invoice_count,
-                (SELECT COALESCE(SUM(grand_total), 0) FROM invoices WHERE customer_id = c.id AND status != 'void') as total_billed,
-                (SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE customer_id = c.id AND status != 'void') as total_paid,
-                (SELECT COALESCE(SUM(outstanding), 0) FROM invoices WHERE customer_id = c.id AND status IN ('sent', 'partial', 'overdue')) as total_outstanding
+                (SELECT COUNT(*) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id) as invoice_count,
+                (SELECT COALESCE(SUM(grand_total), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void') as total_billed,
+                (SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void') as total_paid,
+                (SELECT COALESCE(SUM(outstanding), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status IN ('sent', 'partial', 'overdue')) as total_outstanding
                 FROM customers c 
                 WHERE {$whereClause} 
                 ORDER BY c.created_at DESC 
@@ -61,12 +64,14 @@ class CustomerService {
      * Get single customer with detailed stats and invoices
      */
     public static function getById(int $customerId, int $businessId): ?array {
+        TenantContext::assertMatches($businessId);
+
         $customer = Database::fetch(
             "SELECT c.*,
-             (SELECT COUNT(*) FROM invoices WHERE customer_id = c.id) as invoice_count,
-             (SELECT COALESCE(SUM(grand_total), 0) FROM invoices WHERE customer_id = c.id AND status != 'void') as total_billed,
-             (SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE customer_id = c.id AND status != 'void') as total_paid,
-             (SELECT COALESCE(SUM(outstanding), 0) FROM invoices WHERE customer_id = c.id AND status IN ('sent', 'partial', 'overdue')) as total_outstanding
+             (SELECT COUNT(*) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id) as invoice_count,
+             (SELECT COALESCE(SUM(grand_total), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void') as total_billed,
+             (SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void') as total_paid,
+             (SELECT COALESCE(SUM(outstanding), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status IN ('sent', 'partial', 'overdue')) as total_outstanding
              FROM customers c 
              WHERE c.id = ? AND c.business_id = ?",
             [$customerId, $businessId]
@@ -104,6 +109,8 @@ class CustomerService {
      * Create customer
      */
     public static function create(int $businessId, array $data, int $userId): int {
+        TenantContext::assertMatches($businessId);
+
         return Database::insert('customers', [
             'business_id' => $businessId,
             'name' => trim($data['name']),
@@ -132,6 +139,8 @@ class CustomerService {
      * Update customer
      */
     public static function update(int $customerId, int $businessId, array $data): bool {
+        TenantContext::assertMatches($businessId);
+
         return Database::update('customers', [
             'name' => trim($data['name']),
             'company_name' => trim($data['company_name'] ?? ''),
@@ -155,6 +164,8 @@ class CustomerService {
      * Archive/Delete customer
      */
     public static function delete(int $customerId, int $businessId): bool {
+        TenantContext::assertMatches($businessId);
+
         // Soft delete / archive
         return Database::update('customers', ['status' => 'inactive'], 'id = ? AND business_id = ?', [$customerId, $businessId]) > 0;
     }

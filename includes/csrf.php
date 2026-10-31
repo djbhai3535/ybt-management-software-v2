@@ -23,10 +23,12 @@ class CSRF {
     }
 
     /**
-     * Validate CSRF token from POST request
+     * Validate CSRF token from parameter, POST request, or HTTP Header
      */
-    public static function validate(): bool {
-        $token = $_POST['_csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    public static function validate(?string $token = null): bool {
+        if ($token === null || $token === '') {
+            $token = $_POST['_csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        }
         if (empty($token) || empty($_SESSION['_csrf_token'])) {
             return false;
         }
@@ -42,8 +44,8 @@ class CSRF {
     /**
      * Validate and abort if invalid
      */
-    public static function validateOrDie(): void {
-        if (!self::validate()) {
+    public static function validateOrDie(?string $token = null): void {
+        if (!self::validate($token)) {
             http_response_code(403);
             Flash::error('Invalid or expired security token. Please try again.');
             $redirect = $_SERVER['HTTP_REFERER'] ?? APP_URL . '/dashboard.php';

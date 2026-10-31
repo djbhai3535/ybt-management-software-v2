@@ -82,6 +82,13 @@ class Auth {
         $_SESSION['business_name'] = $user['business_name'];
         $_SESSION['login_time'] = time();
 
+        // Bind Fail-Closed Tenant Context
+        TenantContext::set((int)$user['business_id'], [
+            'name' => $user['business_name'],
+            'user_id' => $user['id'],
+            'role_slug' => $user['role_slug'],
+        ]);
+
         ActivityLog::log($user['business_id'], $user['id'], 'login_success', 'user', $user['id'], 'Successful login');
 
         return ['success' => true, 'user' => $user];
@@ -125,6 +132,9 @@ class Auth {
      * Get current business ID
      */
     public static function businessId(): ?int {
+        if (TenantContext::has()) {
+            return TenantContext::id();
+        }
         return $_SESSION['business_id'] ?? null;
     }
 
@@ -183,6 +193,7 @@ class Auth {
             setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], $p['secure'], $p['httponly']);
         }
         session_destroy();
+        TenantContext::clear();
     }
 
     /**

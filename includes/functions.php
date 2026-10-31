@@ -107,6 +107,16 @@ function randomString(int $length = 32): string {
 }
 
 /**
+ * Generate a standard UUID v4
+ */
+function generateUuidV4(): string {
+    $data = random_bytes(16);
+    $data[6] = chr(ord($data[6]) & 0x0f | 0x40); // set version to 0100
+    $data[8] = chr(ord($data[8]) & 0x3f | 0x80); // set bits 6-7 to 10
+    return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+}
+
+/**
  * Time ago helper
  */
 function timeAgo(string $datetime): string {
@@ -185,31 +195,60 @@ function clientIp(): string {
 }
 
 /**
- * Encrypt sensitive string (e.g. API keys at rest)
+ * Encrypt sensitive string using AES-256-GCM (Authenticated Encryption)
+ * Produces a version-prefixed, tamper-evident ciphertext.
  */
 function encryptString(string $plain): string {
     if ($plain === '') return '';
     $config = require YBT_ROOT . '/config/config.php';
-    $key = hash('sha256', $config['encryption_key'] ?? 'YBT_ENCRYPTION_SECRET', true);
-    $iv = openssl_random_pseudo_bytes(16);
-    $cipher = openssl_encrypt($plain, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
-    return base64_encode($iv . $cipher);
+    $rawKey = $config['encryption_key'] ?? 'YBT_ENCRYPTION_SECRET';
+    $key = hash('sha256', $rawKey, true);
+
+    // 12-byte initialization vector recommended for GCM
+    $iv = random_bytes(12);
+    $tag = '';
+    $cipher = openssl_encrypt($plain, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, '', 16);
+
+    if ($cipher === false) {
+        throw new RuntimeException('Encryption failed.');
+    }
+
+    // Prefix with 'gcm:' followed by base64(iv . tag . cipher)
+    return 'gcm:' . base64_encode($iv . $tag . $cipher);
 }
 
 /**
  * Decrypt sensitive string
+ * Seamlessly handles both new AES-256-GCM payloads and legacy AES-256-CBC records.
  */
 function decryptString(string $encoded): string {
     if ($encoded === '') return '';
+
+    $config = require YBT_ROOT . '/config/config.php';
+    $rawKey = $config['encryption_key'] ?? 'YBT_ENCRYPTION_SECRET';
+    $key = hash('sha256', $rawKey, true);
+
+    // 1. Authenticated AES-256-GCM Format
+    if (str_starts_with($encoded, 'gcm:')) {
+        $raw = base64_decode(substr($encoded, 4), true);
+        if ($raw === false || strlen($raw) < 28) { // 12-byte IV + 16-byte tag = 28 bytes min
+            return $encoded;
+        }
+        $iv = substr($raw, 0, 12);
+        $tag = substr($raw, 12, 16);
+        $cipher = substr($raw, 28);
+
+        $plain = openssl_decrypt($cipher, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+        return $plain !== false ? $plain : $encoded;
+    }
+
+    // 2. Legacy AES-256-CBC Fallback (Backward Compatibility)
     $raw = base64_decode($encoded, true);
     if ($raw === false || strlen($raw) <= 16) {
         return $encoded; // fallback if not encrypted
     }
-    $config = require YBT_ROOT . '/config/config.php';
-    $key = hash('sha256', $config['encryption_key'] ?? 'YBT_ENCRYPTION_SECRET', true);
     $iv = substr($raw, 0, 16);
     $cipher = substr($raw, 16);
     $plain = openssl_decrypt($cipher, 'AES-256-CBC', $key, OPENSSL_RAW_DATA, $iv);
     return $plain !== false ? $plain : $encoded;
 }
-
