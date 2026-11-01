@@ -46,6 +46,30 @@ class SqliteClient {
         $this->pdo->exec("PRAGMA foreign_keys = ON;");
         $this->pdo->exec("PRAGMA synchronous = NORMAL;");
         $this->pdo->exec("PRAGMA temp_store = MEMORY;");
+
+        // MySQL Cross-Compatibility Functions for SQLite
+        $this->pdo->sqliteCreateFunction('CURDATE', fn() => date('Y-m-d'));
+        $this->pdo->sqliteCreateFunction('NOW', fn() => date('Y-m-d H:i:s'));
+        $this->pdo->sqliteCreateFunction('IF', fn($cond, $a, $b) => $cond ? $a : $b);
+        $this->pdo->sqliteCreateFunction('TIMESTAMPDIFF', function($unit, $from, $to) {
+            $t1 = is_numeric($from) ? (int)$from : strtotime((string)$from);
+            $t2 = is_numeric($to) ? (int)$to : strtotime((string)$to);
+            $diffSec = $t2 - $t1;
+            $unit = strtoupper(trim((string)$unit));
+            return match ($unit) {
+                'SECOND' => $diffSec,
+                'MINUTE' => (int)($diffSec / 60),
+                'HOUR'   => (int)($diffSec / 3600),
+                'DAY'    => (int)($diffSec / 86400),
+                default  => $diffSec,
+            };
+        });
+        $this->pdo->sqliteCreateFunction('DATEDIFF', function($to, $from) {
+            $t1 = is_numeric($from) ? (int)$from : strtotime((string)$from);
+            $t2 = is_numeric($to) ? (int)$to : strtotime((string)$to);
+            return (int)(($t2 - $t1) / 86400);
+        });
+        $this->pdo->sqliteCreateFunction('CONCAT', fn(...$args) => implode('', $args));
     }
 
     public function getPdo(): PDO {

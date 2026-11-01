@@ -1,7 +1,7 @@
 <?php
 /**
  * YBT Management Software — Safe Defaults
- * Theme, typography, invoice, dashboard, and permission defaults.
+ * Theme, typography, invoice, dashboard, regional, and permission defaults.
  */
 
 return [
@@ -52,11 +52,11 @@ return [
         'prefix'           => 'INV-',
         'next_number'      => 1,
         'due_days'         => 30,
-        'currency'         => 'INR',
-        'currency_symbol'  => '₹',
+        'currency'         => 'PKR',
+        'currency_symbol'  => 'Rs.',
         'decimal_places'   => 2,
         'tax_enabled'      => true,
-        'default_tax_rate' => 18.00,
+        'default_tax_rate' => 0.00,
         'show_logo'        => true,
         'show_signature'   => false,
         'amount_in_words'  => true,
@@ -90,17 +90,123 @@ return [
 
     // Regional
     'regional' => [
-        'country'          => 'India',
-        'timezone'         => 'Asia/Kolkata',
-        'currency'         => 'INR',
-        'currency_symbol'  => '₹',
+        'country'          => 'Pakistan',
+        'timezone'         => 'Asia/Karachi',
+        'currency'         => 'PKR',
+        'currency_symbol'  => 'Rs.',
         'decimal_separator'  => '.',
         'thousand_separator' => ',',
         'date_format'      => 'd M Y',
         'time_format'      => 'h:i A',
         'datetime_format'  => 'd M Y h:i A',
         'week_start'       => 1, // Monday
-        'number_system'    => 'indian', // indian | international
+        'number_system'    => 'subcontinent', // subcontinent | international
+    ],
+
+    // Supported Currencies & Regional Presets
+    'supported_currencies' => [
+        'PKR' => ['name' => 'Pakistani Rupee', 'symbol' => 'Rs.', 'code' => 'PKR', 'decimals' => 2],
+        'INR' => ['name' => 'Indian Rupee',    'symbol' => '₹',   'code' => 'INR', 'decimals' => 2],
+        'USD' => ['name' => 'US Dollar',       'symbol' => '$',   'code' => 'USD', 'decimals' => 2],
+        'AED' => ['name' => 'UAE Dirham',      'symbol' => 'AED', 'code' => 'AED', 'decimals' => 2],
+        'SAR' => ['name' => 'Saudi Riyal',     'symbol' => 'SAR', 'code' => 'SAR', 'decimals' => 2],
+        'EUR' => ['name' => 'Euro',            'symbol' => '€',   'code' => 'EUR', 'decimals' => 2],
+        'GBP' => ['name' => 'British Pound',   'symbol' => '£',   'code' => 'GBP', 'decimals' => 2],
+    ],
+
+    // Supported Countries & Regional Tax/Banking Presets
+    'supported_countries' => [
+        'Pakistan' => [
+            'name' => 'Pakistan',
+            'code' => 'PK',
+            'phone_prefix' => '+92',
+            'currency' => 'PKR',
+            'currency_symbol' => 'Rs.',
+            'tax_label' => 'NTN / STRN',
+            'tax_placeholder' => 'e.g. 1234567-8',
+            'banking_label' => 'Bank Account / IBAN',
+            'wallet_label' => 'Raast ID / Easypaisa / JazzCash',
+            'number_system' => 'subcontinent',
+            'provinces' => ['Punjab', 'Sindh', 'Khyber Pakhtunkhwa', 'Balochistan', 'Islamabad Capital Territory', 'Gilgit-Baltistan', 'Azad Jammu & Kashmir'],
+        ],
+        'India' => [
+            'name' => 'India',
+            'code' => 'IN',
+            'phone_prefix' => '+91',
+            'currency' => 'INR',
+            'currency_symbol' => '₹',
+            'tax_label' => 'GSTIN',
+            'tax_placeholder' => 'e.g. 27AAAAA0000A1Z5',
+            'banking_label' => 'Bank Account & IFSC',
+            'wallet_label' => 'UPI ID',
+            'number_system' => 'subcontinent',
+            'provinces' => ['Maharashtra', 'Delhi', 'Gujarat', 'Karnataka', 'Tamil Nadu', 'Uttar Pradesh', 'Rajasthan', 'West Bengal', 'Punjab', 'Other'],
+        ],
+        'United Arab Emirates' => [
+            'name' => 'United Arab Emirates',
+            'code' => 'AE',
+            'phone_prefix' => '+971',
+            'currency' => 'AED',
+            'currency_symbol' => 'AED ',
+            'tax_label' => 'TRN (Tax Registration Number)',
+            'tax_placeholder' => 'e.g. 100xxxxxxxxxxxx',
+            'banking_label' => 'IBAN',
+            'wallet_label' => 'Digital Wallet / Mobile Pay',
+            'number_system' => 'international',
+            'provinces' => ['Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman', 'Ras Al Khaimah', 'Fujairah', 'Umm Al Quwain'],
+        ],
+        'Saudi Arabia' => [
+            'name' => 'Saudi Arabia',
+            'code' => 'SA',
+            'phone_prefix' => '+966',
+            'currency' => 'SAR',
+            'currency_symbol' => 'SAR ',
+            'tax_label' => 'VAT Number',
+            'tax_placeholder' => 'e.g. 300xxxxxxxxxxxx',
+            'banking_label' => 'IBAN',
+            'wallet_label' => 'STC Pay / Urpay / Mada',
+            'number_system' => 'international',
+            'provinces' => ['Riyadh', 'Makkah', 'Eastern Province', 'Madinah', 'Asir', 'Other'],
+        ],
+        'United States' => [
+            'name' => 'United States',
+            'code' => 'US',
+            'phone_prefix' => '+1',
+            'currency' => 'USD',
+            'currency_symbol' => '$',
+            'tax_label' => 'EIN / Tax ID',
+            'tax_placeholder' => 'e.g. 12-3456789',
+            'banking_label' => 'Routing & Account Number',
+            'wallet_label' => 'Zelle / CashApp / PayPal',
+            'number_system' => 'international',
+            'provinces' => [],
+        ],
+        'United Kingdom' => [
+            'name' => 'United Kingdom',
+            'code' => 'GB',
+            'phone_prefix' => '+44',
+            'currency' => 'GBP',
+            'currency_symbol' => '£',
+            'tax_label' => 'VAT Registration Number',
+            'tax_placeholder' => 'e.g. GB123456789',
+            'banking_label' => 'Sort Code & Account Number',
+            'wallet_label' => 'Digital Wallet',
+            'number_system' => 'international',
+            'provinces' => [],
+        ],
+        'Other' => [
+            'name' => 'Other / International',
+            'code' => 'XX',
+            'phone_prefix' => '+',
+            'currency' => 'USD',
+            'currency_symbol' => '$',
+            'tax_label' => 'Tax / VAT Number',
+            'tax_placeholder' => 'Tax ID',
+            'banking_label' => 'Bank Account / IBAN',
+            'wallet_label' => 'Payment Handle',
+            'number_system' => 'international',
+            'provinces' => [],
+        ],
     ],
 
     // Default permissions for Manager role

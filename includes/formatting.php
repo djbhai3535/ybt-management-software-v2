@@ -1,26 +1,54 @@
 <?php
 /**
  * YBT Management Software — Formatting Helpers
- * Currency, date, and number formatting with Indian number system support.
+ * Currency, date, and number formatting with multi-currency (PKR, INR, USD, etc.)
+ * and flexible numbering system (subcontinent vs international) support.
  */
 
 /**
- * Format currency amount
+ * Resolve currency symbol for given or active tenant currency code
  */
-function formatCurrency(float $amount, ?string $symbol = null): string {
+function getCurrencySymbol(?string $currencyCode = null): string {
     $defaults = require YBT_ROOT . '/config/defaults.php';
-    $regional = $defaults['regional'];
-    $symbol = $symbol ?? $regional['currency_symbol'];
-
-    if (($regional['number_system'] ?? 'indian') === 'indian') {
-        return $symbol . formatIndianNumber($amount);
+    if ($currencyCode === null) {
+        $currencyCode = $_SESSION['default_currency'] 
+            ?? (class_exists('TenantContext') && TenantContext::has() && isset(TenantContext::data()['default_currency']) ? TenantContext::data()['default_currency'] : null)
+            ?? $defaults['regional']['currency'];
     }
-
-    return $symbol . number_format($amount, 2, $regional['decimal_separator'], $regional['thousand_separator']);
+    $currencyCode = strtoupper(trim((string)$currencyCode));
+    if (isset($defaults['supported_currencies'][$currencyCode]['symbol'])) {
+        return $defaults['supported_currencies'][$currencyCode]['symbol'];
+    }
+    return $defaults['regional']['currency_symbol'] ?? 'Rs.';
 }
 
 /**
- * Format number in Indian numbering system (1,23,456.78)
+ * Format currency amount with dynamic regional currency symbol and numbering system
+ */
+function formatCurrency(float $amount, ?string $symbol = null, ?string $numberSystem = null): string {
+    $defaults = require YBT_ROOT . '/config/defaults.php';
+    $regional = $defaults['regional'];
+    $symbol = $symbol ?? getCurrencySymbol();
+
+    // Spacing between alphabetic currency symbols and digits (e.g. "Rs. 1,500" vs "$1,500")
+    $hasAlpha = preg_match('/[a-zA-Z\.]+$/', $symbol);
+    $prefix = $symbol . ($hasAlpha && !str_ends_with($symbol, ' ') ? ' ' : '');
+
+    $system = $numberSystem 
+        ?? $_SESSION['number_system'] 
+        ?? (class_exists('TenantContext') && TenantContext::has() && isset(TenantContext::data()['number_system']) ? TenantContext::data()['number_system'] : null)
+        ?? $regional['number_system'] 
+        ?? 'subcontinent';
+
+    if ($system === 'subcontinent' || $system === 'indian') {
+        return $prefix . formatIndianNumber($amount);
+    }
+
+    return $prefix . number_format($amount, 2, $regional['decimal_separator'], $regional['thousand_separator']);
+}
+
+/**
+ * Format number in Indian/Subcontinent numbering system (1,23,456.78)
  */
 function formatIndianNumber(float $number, int $decimals = 2): string {
     $isNegative = $number < 0;
@@ -30,7 +58,7 @@ function formatIndianNumber(float $number, int $decimals = 2): string {
     $intPart = $parts[0];
     $decPart = $parts[1] ?? str_repeat('0', $decimals);
 
-    // Indian grouping: last 3 digits, then groups of 2
+    // Subcontinent grouping: last 3 digits, then groups of 2
     $len = strlen($intPart);
     if ($len <= 3) {
         $formatted = $intPart;
@@ -73,7 +101,12 @@ function formatNumber(float $number, int $decimals = 0): string {
     $defaults = require YBT_ROOT . '/config/defaults.php';
     $regional = $defaults['regional'];
 
-    if (($regional['number_system'] ?? 'indian') === 'indian') {
+    $system = $_SESSION['number_system'] 
+        ?? (class_exists('TenantContext') && TenantContext::has() && isset(TenantContext::data()['number_system']) ? TenantContext::data()['number_system'] : null)
+        ?? $regional['number_system'] 
+        ?? 'subcontinent';
+
+    if ($system === 'subcontinent' || $system === 'indian') {
         return formatIndianNumber($number, $decimals);
     }
 
@@ -88,10 +121,10 @@ function formatPercent(float $value, int $decimals = 1): string {
 }
 
 /**
- * Convert amount to words (Indian system)
+ * Convert amount to words (Subcontinent / International)
  */
-function amountInWords(float $amount): string {
-    if ($amount == 0) return 'Zero';
+function amountInWords(float $amount, string $currencyName = 'Rupees'): string {
+    if ($amount == 0) return 'Zero ' . $currencyName;
 
     $isNegative = $amount < 0;
     $amount = abs($amount);
@@ -128,19 +161,19 @@ function amountInWords(float $amount): string {
 
     $result = trim($result);
     if ($decPart > 0) {
-        $result .= ' and ' . $numToWords($decPart) . ' Paise';
+        $result .= ' and ' . $numToWords($decPart) . ' Cents/Paise';
     } else {
         $result .= ' Only';
     }
 
-    return ($isNegative ? 'Minus ' : '') . 'Rupees ' . $result;
+    return ($isNegative ? 'Minus ' : '') . $currencyName . ' ' . $result;
 }
 
 /**
  * Format number to words alias
  */
-function formatNumberToWords(float $amount): string {
-    return amountInWords($amount);
+function formatNumberToWords(float $amount, string $currencyName = 'Rupees'): string {
+    return amountInWords($amount, $currencyName);
 }
 
 /**

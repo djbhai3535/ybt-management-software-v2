@@ -76,6 +76,26 @@ class Database {
                 self::$instance->exec("PRAGMA foreign_keys = ON;");
                 self::$instance->sqliteCreateFunction('CURDATE', fn() => date('Y-m-d'));
                 self::$instance->sqliteCreateFunction('NOW', fn() => date('Y-m-d H:i:s'));
+                self::$instance->sqliteCreateFunction('IF', fn($cond, $a, $b) => $cond ? $a : $b);
+                self::$instance->sqliteCreateFunction('TIMESTAMPDIFF', function($unit, $from, $to) {
+                    $t1 = is_numeric($from) ? (int)$from : strtotime((string)$from);
+                    $t2 = is_numeric($to) ? (int)$to : strtotime((string)$to);
+                    $diffSec = $t2 - $t1;
+                    $unit = strtoupper(trim((string)$unit));
+                    return match ($unit) {
+                        'SECOND' => $diffSec,
+                        'MINUTE' => (int)($diffSec / 60),
+                        'HOUR'   => (int)($diffSec / 3600),
+                        'DAY'    => (int)($diffSec / 86400),
+                        default  => $diffSec,
+                    };
+                });
+                self::$instance->sqliteCreateFunction('DATEDIFF', function($to, $from) {
+                    $t1 = is_numeric($from) ? (int)$from : strtotime((string)$from);
+                    $t2 = is_numeric($to) ? (int)$to : strtotime((string)$to);
+                    return (int)(($t2 - $t1) / 86400);
+                });
+                self::$instance->sqliteCreateFunction('CONCAT', fn(...$args) => implode('', $args));
                 self::$driver = 'sqlite';
 
                 // Ensure local schema migrations and demo accounts are up to date
