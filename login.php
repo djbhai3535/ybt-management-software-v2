@@ -25,6 +25,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result = Auth::attempt($email, $password);
             if ($result['success']) {
                 Flash::success('Welcome back, ' . $result['user']['name'] . '!');
+                if (!empty($result['user']['is_super_admin'])) {
+                    header('Location: ' . url('admin/index.php'));
+                    exit;
+                }
                 if (empty($result['user']['onboarding_completed'])) {
                     header('Location: ' . url('onboarding.php'));
                     exit;

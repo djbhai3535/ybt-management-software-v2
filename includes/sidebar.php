@@ -193,6 +193,16 @@ if (Auth::check()) {
                 </a>
             </li>
             <?php endif; ?>
+            <?php if (Auth::isSuperAdmin()): ?>
+            <li class="nav-section-title"><span>PLATFORM OWNER</span></li>
+            <li class="nav-item">
+                <a href="<?= url('admin/index.php') ?>" class="nav-link text-warning font-semibold">
+                    <i class="ti ti-shield-lock nav-icon text-warning"></i>
+                    <span class="nav-label">Super Admin Panel</span>
+                    <span class="badge badge-warning">ADMIN</span>
+                </a>
+            </li>
+            <?php endif; ?>
         </ul>
     </nav>
 

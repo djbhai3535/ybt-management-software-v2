@@ -81,6 +81,43 @@ require YBT_ROOT . '/includes/header.php';
     </div>
 </div>
 
+<?php
+// Query active platform announcements
+$activeAnnouncements = [];
+try {
+    $activeAnnouncements = Database::fetchAll(
+        "SELECT * FROM platform_announcements WHERE is_active = 1 AND (starts_at IS NULL OR starts_at = '' OR starts_at <= CURDATE()) AND (expires_at IS NULL OR expires_at = '' OR expires_at >= CURDATE()) ORDER BY id DESC LIMIT 3"
+    );
+} catch (\Throwable $e) {}
+?>
+<?php if (!empty($activeAnnouncements)): ?>
+<div class="announcements-container mb-4">
+    <?php foreach ($activeAnnouncements as $ann): 
+        $alertType = $ann['type'] ?? 'info';
+        $alertClass = match($alertType) {
+            'warning' => 'alert-warning',
+            'danger' => 'alert-danger',
+            'success' => 'alert-success',
+            default => 'alert-info'
+        };
+        $iconClass = match($alertType) {
+            'warning' => 'ti-alert-triangle',
+            'danger' => 'ti-alert-octagon',
+            'success' => 'ti-circle-check',
+            default => 'ti-info-circle'
+        };
+    ?>
+    <div class="alert <?= $alertClass ?> d-flex align-start gap-3 p-3 rounded mb-2 shadow-sm" style="border-left: 4px solid var(--color-primary);">
+        <i class="ti <?= $iconClass ?> fs-4 mt-1"></i>
+        <div class="flex-1">
+            <strong class="d-block mb-1 font-semibold"><?= e($ann['title']) ?></strong>
+            <div class="text-sm text-secondary"><?= nl2br(e($ann['content'])) ?></div>
+        </div>
+    </div>
+    <?php endforeach; ?>
+</div>
+<?php endif; ?>
+
 <!-- KPI Cards Grid -->
 <div class="kpi-grid mb-4">
     <!-- Card 1: Revenue -->

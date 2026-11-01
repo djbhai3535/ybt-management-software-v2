@@ -49,6 +49,7 @@ class Auth {
             $userId = (int)($session['user_id'] ?? $userRecord['id']);
             $businessId = (int)($session['business_id'] ?? $userRecord['business_id']);
             $roleSlug = $session['role_slug'] ?? $userRecord['role_slug'] ?? 'staff';
+            $isSuperAdmin = ($roleSlug === 'super_admin') || (!empty($session['is_super_admin'])) || (!empty($userRecord['is_super_admin']));
             $isOwner = ($roleSlug === 'owner') || (!empty($session['is_owner'])) || (!empty($userRecord['is_owner']));
             $userName = $session['user_name'] ?? $userRecord['name'];
             $userEmail = $session['user_email'] ?? $userRecord['email'];
@@ -56,6 +57,17 @@ class Auth {
             $defaultCurrency = $session['default_currency'] ?? $userRecord['default_currency'] ?? 'PKR';
             $tenantUuid = $session['tenant_uuid'] ?? $userRecord['tenant_uuid'] ?? '';
             $onboardingCompleted = (int)($userRecord['onboarding_completed'] ?? 1);
+
+            // Suspension guards (Super Admin exempt)
+            if (!$isSuperAdmin) {
+                if (($userRecord['verification_status'] ?? '') === 'suspended' || (isset($userRecord['is_active']) && (int)$userRecord['is_active'] === 0)) {
+                    return ['success' => false, 'error' => 'Your account has been suspended. Please contact platform support.'];
+                }
+                $bizStatus = Database::fetchColumn("SELECT status FROM businesses WHERE id = ?", [$businessId]);
+                if ($bizStatus === 'suspended') {
+                    return ['success' => false, 'error' => 'Your shop account has been suspended by the platform administrator. Please contact support.'];
+                }
+            }
 
             // Upsert / update local_sessions table for future fast offline access
             try {
@@ -90,6 +102,7 @@ class Auth {
             $_SESSION['business_id'] = $businessId;
             $_SESSION['tenant_uuid'] = $tenantUuid;
             $_SESSION['is_owner'] = $isOwner;
+            $_SESSION['is_super_admin'] = (bool)$isSuperAdmin;
             $_SESSION['role_slug'] = $roleSlug;
             $_SESSION['user_name'] = $userName;
             $_SESSION['user_email'] = $userEmail;
@@ -103,7 +116,8 @@ class Auth {
                 'default_currency' => $defaultCurrency,
                 'tenant_uuid' => $tenantUuid,
                 'role_slug' => $roleSlug,
-                'is_owner' => $isOwner
+                'is_owner' => $isOwner,
+                'is_super_admin' => (bool)$isSuperAdmin
             ]);
 
             return [
@@ -113,6 +127,7 @@ class Auth {
                     'name' => $userName,
                     'email' => $userEmail,
                     'role_slug' => $roleSlug,
+                    'is_super_admin' => (bool)$isSuperAdmin,
                     'onboarding_completed' => $onboardingCompleted
                 ],
                 'mode' => 'offline'
@@ -133,14 +148,16 @@ class Auth {
             return ['success' => false, 'error' => 'Invalid email or password.'];
         }
 
+        $isSuperAdmin = !empty($user['is_super_admin']) || (($user['role_slug'] ?? '') === 'super_admin');
+
         // Check account active
-        if (!$user['is_active']) {
+        if (!$isSuperAdmin && !$user['is_active']) {
             return ['success' => false, 'error' => 'This account has been deactivated.'];
         }
 
         // Check suspension
-        if (($user['verification_status'] ?? '') === 'suspended' || ($user['business_status'] ?? '') === 'suspended') {
-            return ['success' => false, 'error' => 'Your account or business has been suspended. Please contact support.'];
+        if (!$isSuperAdmin && (($user['verification_status'] ?? '') === 'suspended' || ($user['business_status'] ?? '') === 'suspended')) {
+            return ['success' => false, 'error' => 'Your account or business has been suspended. Please contact platform support.'];
         }
 
         // Check email verification status
@@ -200,6 +217,7 @@ class Auth {
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['business_id'] = $user['business_id'];
         $_SESSION['is_owner'] = (bool)$user['is_owner'];
+        $_SESSION['is_super_admin'] = (bool)$isSuperAdmin;
         $_SESSION['role_slug'] = $user['role_slug'];
         $_SESSION['user_name'] = $user['name'];
         $_SESSION['user_email'] = $user['email'];
@@ -211,6 +229,7 @@ class Auth {
             'name' => $user['business_name'],
             'user_id' => $user['id'],
             'role_slug' => $user['role_slug'],
+            'is_super_admin' => (bool)$isSuperAdmin
         ]);
 
         ActivityLog::log($user['business_id'], $user['id'], 'login_success', 'user', $user['id'], 'Successful login');
@@ -241,6 +260,36 @@ class Auth {
             self::logout();
             Flash::warning('Session expired. Please log in again.');
             header('Location: ' . APP_URL . '/login.php');
+            exit;
+        }
+
+        // Active Tenant Suspension Check (Super Admin exempt)
+        if (!self::isSuperAdmin() && self::businessId()) {
+            $bStatus = Database::fetchColumn("SELECT status FROM businesses WHERE id = ?", [self::businessId()]);
+            if ($bStatus === 'suspended') {
+                self::logout();
+                Flash::error('Your shop account has been suspended by the platform administrator. Please contact support.');
+                header('Location: ' . APP_URL . '/login.php');
+                exit;
+            }
+        }
+    }
+
+    /**
+     * Check if current user is Super Admin
+     */
+    public static function isSuperAdmin(): bool {
+        return !empty($_SESSION['is_super_admin']);
+    }
+
+    /**
+     * Require Super Admin authorization or 403 Forbidden
+     */
+    public static function requireSuperAdmin(): void {
+        self::requireLogin();
+        if (!self::isSuperAdmin()) {
+            http_response_code(403);
+            require YBT_ROOT . '/errors/403.php';
             exit;
         }
     }
@@ -316,7 +365,9 @@ class Auth {
             $p = session_get_cookie_params();
             setcookie(session_name(), '', time() - 42000, $p['path'], $p['domain'], $p['secure'], $p['httponly']);
         }
-        session_destroy();
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_destroy();
+        }
         TenantContext::clear();
     }
 

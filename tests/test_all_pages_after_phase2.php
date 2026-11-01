@@ -1,6 +1,7 @@
 <?php
 /**
- * Post-Phase 2 Verification: All Pages Test on SQLite
+ * All Pages Verification Audit on SQLite Offline Runtime
+ * Tests Shopkeeper pages (26) + Error pages (1) + Super Admin pages (6) = 33 pages
  */
 
 declare(strict_types=1);
@@ -12,12 +13,13 @@ $projectDir = realpath(__DIR__ . '/..');
 require_once $projectDir . '/includes/bootstrap.php';
 require_once $projectDir . '/desktop/src/SqliteClient.php';
 
-// Ensure active database is upgraded with migration 003
+// Ensure active database is upgraded with all migrations
 $sqlitePath = str_replace('\\', '/', getenv('APPDATA')) . '/YBT Management Software/storage/desktop/ybt_local.sqlite';
 $sqlite = new SqliteClient($sqlitePath);
 $sqlite->runMigrations();
 
 $pages = [
+    // Standard Shopkeeper Pages (20)
     'dashboard.php',
     'customers.php',
     'customer-view.php',
@@ -37,6 +39,7 @@ $pages = [
     'profile.php',
     'ai-assistant.php',
     'onboarding.php',
+    // Public & Auth Pages (6)
     'register.php',
     'login.php',
     'forgot-password.php',
@@ -44,10 +47,19 @@ $pages = [
     'reset-password.php',
     'verify-email.php',
     'accept-invitation.php',
+    // Errors (1)
+    'errors/403.php',
+    // Super Admin Pages (6)
+    'admin/index.php',
+    'admin/tenants.php',
+    'admin/tenant-view.php',
+    'admin/users.php',
+    'admin/announcements.php',
+    'admin/settings.php',
 ];
 
 echo "====================================================================\n";
-echo " POST-PHASE 2 PAGE AUDIT ON SQLITE OFFLINE RUNTIME\n";
+echo " FULL APPLICATION PAGE AUDIT (SHOPKEEPER & SUPER ADMIN)\n";
 echo " Database: {$sqlitePath}\n";
 echo "====================================================================\n\n";
 
@@ -63,47 +75,64 @@ $publicPages = [
     'forgot-password.php',
     'resend-verification.php',
     'reset-password.php',
+    'verify-email.php',
     'accept-invitation.php',
+    'errors/403.php',
 ];
 
 $phpBin = 'C:/Users/Dj Bhai/AppData/Local/YBT Management Software/php/php.exe';
 
 foreach ($pages as $page) {
     $isPublic = in_array($page, $publicPages, true);
+    $isAdmin = str_starts_with($page, 'admin/');
     
-    $authSetup = $isPublic ? "
-        // Guest mode for public pages
-        \$_SESSION = [];
-    " : ($page === 'onboarding.php' ? "
-        // Onboarding test mode
-        \$_SESSION['user_id'] = 1;
-        \$_SESSION['business_id'] = 1;
-        \$_SESSION['tenant_uuid'] = 'tenant-demo-ybt-001';
-        \$_SESSION['is_owner'] = true;
-        \$_SESSION['role_slug'] = 'owner';
-        \$_SESSION['user_name'] = 'Vikram Malhotra';
-        \$_SESSION['user_email'] = 'owner@ybt.com';
-        \$_SESSION['auth_mode'] = 'offline';
-        \$_SESSION['onboarding_step'] = 1;
-        TenantContext::set(1, ['name' => 'YBT Technologies (Demo)']);
-        Database::query('UPDATE users SET onboarding_completed = 0 WHERE id = 1');
-        Database::query('UPDATE businesses SET onboarding_step = 1 WHERE id = 1');
-        register_shutdown_function(function() {
-            Database::query('UPDATE users SET onboarding_completed = 1 WHERE id = 1');
-            Database::query('UPDATE businesses SET onboarding_step = 3 WHERE id = 1');
-        });
-    " : "
-        // Authenticated Owner mode
-        \$_SESSION['user_id'] = 1;
-        \$_SESSION['business_id'] = 1;
-        \$_SESSION['tenant_uuid'] = 'tenant-demo-ybt-001';
-        \$_SESSION['is_owner'] = true;
-        \$_SESSION['role_slug'] = 'owner';
-        \$_SESSION['user_name'] = 'Vikram Malhotra';
-        \$_SESSION['user_email'] = 'owner@ybt.com';
-        \$_SESSION['auth_mode'] = 'offline';
-        TenantContext::set(1, ['name' => 'YBT Technologies (Demo)']);
-    ");
+    if ($isAdmin) {
+        $authSetup = "
+            \$_SESSION['user_id'] = 14;
+            \$_SESSION['business_id'] = 1;
+            \$_SESSION['is_super_admin'] = true;
+            \$_SESSION['role_slug'] = 'super_admin';
+            \$_SESSION['user_name'] = 'Platform Super Admin';
+            \$_SESSION['user_email'] = 'superadmin@ybt.com';
+            \$_SESSION['auth_mode'] = 'offline';
+            TenantContext::set(1, ['name' => 'YBT Technologies (Demo)']);
+        ";
+    } elseif ($isPublic) {
+        $authSetup = "
+            \$_SESSION = [];
+        ";
+    } elseif ($page === 'onboarding.php') {
+        $authSetup = "
+            \$_SESSION['user_id'] = 1;
+            \$_SESSION['business_id'] = 1;
+            \$_SESSION['tenant_uuid'] = 'tenant-demo-ybt-001';
+            \$_SESSION['is_owner'] = true;
+            \$_SESSION['role_slug'] = 'owner';
+            \$_SESSION['user_name'] = 'Vikram Malhotra';
+            \$_SESSION['user_email'] = 'owner@ybt.com';
+            \$_SESSION['auth_mode'] = 'offline';
+            \$_SESSION['onboarding_step'] = 1;
+            TenantContext::set(1, ['name' => 'YBT Technologies (Demo)']);
+            Database::query('UPDATE users SET onboarding_completed = 0 WHERE id = 1');
+            Database::query('UPDATE businesses SET onboarding_step = 1 WHERE id = 1');
+            register_shutdown_function(function() {
+                Database::query('UPDATE users SET onboarding_completed = 1 WHERE id = 1');
+                Database::query('UPDATE businesses SET onboarding_step = 3 WHERE id = 1');
+            });
+        ";
+    } else {
+        $authSetup = "
+            \$_SESSION['user_id'] = 1;
+            \$_SESSION['business_id'] = 1;
+            \$_SESSION['tenant_uuid'] = 'tenant-demo-ybt-001';
+            \$_SESSION['is_owner'] = true;
+            \$_SESSION['role_slug'] = 'owner';
+            \$_SESSION['user_name'] = 'Vikram Malhotra';
+            \$_SESSION['user_email'] = 'owner@ybt.com';
+            \$_SESSION['auth_mode'] = 'offline';
+            TenantContext::set(1, ['name' => 'YBT Technologies (Demo)']);
+        ";
+    }
 
     $script = "
         error_reporting(0);
@@ -149,3 +178,8 @@ foreach ($pages as $page) {
 echo "\n====================================================================\n";
 echo "AUDIT SUMMARY: {$okCount} OK, {$brokenCount} BROKEN out of " . count($pages) . " pages.\n";
 echo "====================================================================\n";
+
+if ($brokenCount > 0) {
+    exit(1);
+}
+exit(0);

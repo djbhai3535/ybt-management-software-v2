@@ -152,6 +152,7 @@ class StaffService {
                 'phone' => $phone ?? '',
                 'password' => $passwordHash,
                 'is_owner' => 0,
+                'is_super_admin' => 0,
                 'is_active' => 1,
                 'email_verified_at' => $now,
                 'verification_status' => 'verified',

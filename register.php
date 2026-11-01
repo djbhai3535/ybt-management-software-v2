@@ -149,6 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'phone' => $phone,
                         'password' => $passwordHash,
                         'is_owner' => 1,
+                        'is_super_admin' => 0,
                         'is_active' => 1,
                         'email_verified_at' => $isDesktopOffline ? date('Y-m-d H:i:s') : null,
                         'verification_status' => $isDesktopOffline ? 'verified' : 'pending',

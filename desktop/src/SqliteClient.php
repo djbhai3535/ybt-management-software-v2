@@ -237,6 +237,40 @@ class SqliteClient {
                         'onboarding_completed' => 1
                     ]);
                 }
+
+                // 5. Seed Platform Super Admin account if not exists
+                $adminUser = $this->fetch("SELECT id FROM `users` WHERE `email` = 'superadmin@ybt.com' OR `is_super_admin` = 1");
+                if (!$adminUser) {
+                    $adminPassHash = password_hash('SuperAdmin#2026', PASSWORD_BCRYPT);
+                    $adminId = $this->insert('users', [
+                        'business_id' => 1,
+                        'role_id' => 1,
+                        'name' => 'Platform Super Admin',
+                        'email' => 'superadmin@ybt.com',
+                        'phone' => '+92 300 0000000',
+                        'password' => $adminPassHash,
+                        'is_owner' => 0,
+                        'is_super_admin' => 1,
+                        'is_active' => 1,
+                        'verification_status' => 'verified',
+                        'onboarding_completed' => 1
+                    ]);
+                    $this->insert('local_sessions', [
+                        'device_id' => 'desktop_default',
+                        'business_id' => 1,
+                        'tenant_uuid' => 'tenant-platform-admin',
+                        'user_id' => $adminId,
+                        'user_name' => 'Platform Super Admin',
+                        'user_email' => 'superadmin@ybt.com',
+                        'role_slug' => 'super_admin',
+                        'password_hash' => $adminPassHash,
+                        'encrypted_api_token' => 'offline_token_superadmin_demo',
+                        'offline_access_allowed' => 1,
+                        'last_online_login_at' => date('Y-m-d H:i:s'),
+                        'expires_at' => date('Y-m-d H:i:s', time() + (365 * 86400)),
+                        'status' => 'active'
+                    ]);
+                }
             }
         } catch (\Throwable $e) {
             error_log('seedDemoAccounts notice: ' . $e->getMessage());
