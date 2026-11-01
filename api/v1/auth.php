@@ -21,7 +21,10 @@ if ($subRoute === '/register' && $method === 'POST') {
     $shopName = trim($input['shop_name'] ?? '');
     $shopType = trim($input['shop_type'] ?? 'Mobile Shop');
     $phone = trim($input['phone'] ?? '');
-    $country = trim($input['country'] ?? 'India');
+    $country = trim($input['country'] ?? 'Pakistan');
+    $defaults = require YBT_ROOT . '/config/defaults.php';
+    $countryConfig = $defaults['supported_countries'][$country] ?? $defaults['supported_countries']['Other'] ?? [];
+    $currency = strtoupper(trim($input['currency'] ?? $countryConfig['currency'] ?? 'PKR'));
 
     if (empty($name) || empty($email) || empty($password) || empty($shopName) || empty($phone)) {
         apiError('Full name, email, password, shop name, and phone are required.', 'VALIDATION_FAILED', 422);
@@ -56,6 +59,7 @@ if ($subRoute === '/register' && $method === 'POST') {
             'email' => $email,
             'phone' => $phone,
             'country' => $country,
+            'default_currency' => $currency,
             'tenant_uuid' => $tenantUuid,
             'status' => 'pending_verification',
             'onboarding_step' => 1,
@@ -87,12 +91,40 @@ if ($subRoute === '/register' && $method === 'POST') {
             'is_system' => 1
         ]);
 
-        // Permissions for Owner
+        // Permissions for Owner (all 54 permissions)
         $allPermissions = Database::fetchAll("SELECT id FROM permissions");
         foreach ($allPermissions as $perm) {
             Database::insert('role_permissions', [
                 'role_id' => $ownerRoleId,
                 'permission_id' => $perm['id']
+            ]);
+        }
+
+        // Operational permissions for Manager
+        $mgrPermKeys = [
+            'dashboard.view', 'customers.view', 'customers.create', 'customers.edit',
+            'leads.view', 'leads.create', 'leads.edit', 'products.view', 'tasks.view',
+            'tasks.create', 'quotations.view', 'invoices.view', 'invoices.create', 'invoices.edit',
+            'payments.view', 'payments.create', 'expenses.view', 'expenses.create'
+        ];
+        $mgrPerms = Database::fetchAll("SELECT id FROM permissions WHERE `key` IN ('" . implode("','", $mgrPermKeys) . "')");
+        foreach ($mgrPerms as $mp) {
+            Database::insert('role_permissions', [
+                'role_id' => $managerRoleId,
+                'permission_id' => $mp['id']
+            ]);
+        }
+
+        // POS permissions for Staff
+        $staffPermKeys = [
+            'dashboard.view', 'customers.view', 'customers.create',
+            'products.view', 'invoices.view', 'invoices.create', 'payments.view', 'payments.create'
+        ];
+        $staffPerms = Database::fetchAll("SELECT id FROM permissions WHERE `key` IN ('" . implode("','", $staffPermKeys) . "')");
+        foreach ($staffPerms as $sp) {
+            Database::insert('role_permissions', [
+                'role_id' => $staffRoleId,
+                'permission_id' => $sp['id']
             ]);
         }
 
@@ -128,12 +160,17 @@ if ($subRoute === '/register' && $method === 'POST') {
 
         MailerService::sendVerificationEmail($email, $name, $rawToken);
 
-        ActivityLog::log($businessId, $userId, 'registration_initiated', 'user', $userId, "Shopkeeper registered via API: {$name} ({$shopName})");
+        ActivityLog::log($businessId, $userId, 'registration_initiated', 'user', $userId, "Shopkeeper registered via API: {$name} ({$shopName}) - Country: {$country}, Currency: {$currency}");
 
         apiResponse([
             'message' => 'Registration successful! Please check your email to verify your account.',
+            'tenant_uuid' => $tenantUuid,
+            'business_id' => $businessId,
+            'user_id' => $userId,
             'email' => $email,
             'shop_name' => $shopName,
+            'country' => $country,
+            'currency' => $currency,
             'requires_verification' => true
         ], 201);
 

@@ -1,6 +1,8 @@
 <?php
 /**
  * YBT Management Software — Clean Enterprise Shopkeeper Registration Portal
+ * Supports Multi-Country (Pakistan, India, UAE, Saudi Arabia, International)
+ * and automatic tenant creation with Owner role and offline desktop fallback.
  */
 
 require_once __DIR__ . '/includes/bootstrap.php';
@@ -10,6 +12,10 @@ if (Auth::check()) {
     header('Location: ' . url('dashboard.php'));
     exit;
 }
+
+$defaults = require YBT_ROOT . '/config/defaults.php';
+$supportedCountries = $defaults['supported_countries'] ?? [];
+$supportedCurrencies = $defaults['supported_currencies'] ?? [];
 
 $error = '';
 $success = false;
@@ -25,7 +31,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $shopName = trim($_POST['shop_name'] ?? '');
         $shopType = trim($_POST['shop_type'] ?? 'Mobile Shop');
         $phone = trim($_POST['phone'] ?? '');
-        $country = trim($_POST['country'] ?? 'India');
+        $country = trim($_POST['country'] ?? 'Pakistan');
+        $countryPreset = $supportedCountries[$country] ?? $supportedCountries['Other'] ?? [];
+        $currency = strtoupper(trim($_POST['currency'] ?? $countryPreset['currency'] ?? 'PKR'));
         $terms = !empty($_POST['terms']);
 
         if (empty($name) || empty($email) || empty($password) || empty($shopName) || empty($phone)) {
@@ -39,19 +47,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!$terms) {
             $error = 'You must agree to the Terms of Service to create an account.';
         } else {
-            // Check for existing user account
+            // Check for existing active or pending user account
             $existing = Database::fetch("SELECT id FROM users WHERE email = ? LIMIT 1", [$email]);
             if ($existing) {
-                // Prevent user enumeration: Show safe generic message or notify
-                $error = 'An account with this email address already exists or is pending verification.';
+                // Prevent duplicate registrations
+                $error = 'An account with this email address already exists. Please log in or reset your password.';
             } else {
                 $db = Database::getInstance();
                 $db->beginTransaction();
 
                 try {
                     $tenantUuid = generateUuidV4();
+                    $isDesktopOffline = (Database::getDriver() === 'sqlite');
 
-                    // 1. Create Business
+                    // 1. Create Business Tenant
                     $businessId = Database::insert('businesses', [
                         'name' => $shopName,
                         'legal_name' => $shopName,
@@ -61,13 +70,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'email' => $email,
                         'phone' => $phone,
                         'country' => $country,
+                        'default_currency' => $currency,
                         'tenant_uuid' => $tenantUuid,
-                        'status' => 'pending_verification',
+                        'status' => $isDesktopOffline ? 'active' : 'pending_verification',
                         'onboarding_step' => 1,
                         'is_demo' => 0
                     ]);
 
-                    // 2. Create Roles for Business
+                    // 2. Create Roles for Tenant
                     $ownerRoleId = Database::insert('roles', [
                         'business_id' => $businessId,
                         'name' => 'Shop Owner',
@@ -92,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'is_system' => 1
                     ]);
 
-                    // Grant all permissions to Owner Role
+                    // Grant all 54 permissions to Owner Role
                     $allPermissions = Database::fetchAll("SELECT id FROM permissions");
                     foreach ($allPermissions as $perm) {
                         Database::insert('role_permissions', [
@@ -101,17 +111,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         ]);
                     }
 
-                    // 3. Create User Account
+                    // Grant standard operational permissions to Manager Role
+                    $mgrPermKeys = [
+                        'dashboard.view', 'customers.view', 'customers.create', 'customers.edit',
+                        'leads.view', 'leads.create', 'leads.edit', 'products.view', 'tasks.view',
+                        'tasks.create', 'quotations.view', 'invoices.view', 'invoices.create', 'invoices.edit',
+                        'payments.view', 'payments.create', 'expenses.view', 'expenses.create'
+                    ];
+                    $mgrPerms = Database::fetchAll("SELECT id FROM permissions WHERE `key` IN ('" . implode("','", $mgrPermKeys) . "')");
+                    foreach ($mgrPerms as $mp) {
+                        Database::insert('role_permissions', [
+                            'role_id' => $managerRoleId,
+                            'permission_id' => $mp['id']
+                        ]);
+                    }
+
+                    // Grant POS & billing permissions to Staff Role
+                    $staffPermKeys = [
+                        'dashboard.view', 'customers.view', 'customers.create',
+                        'products.view', 'invoices.view', 'invoices.create', 'payments.view', 'payments.create'
+                    ];
+                    $staffPerms = Database::fetchAll("SELECT id FROM permissions WHERE `key` IN ('" . implode("','", $staffPermKeys) . "')");
+                    foreach ($staffPerms as $sp) {
+                        Database::insert('role_permissions', [
+                            'role_id' => $staffRoleId,
+                            'permission_id' => $sp['id']
+                        ]);
+                    }
+
+                    // 3. Create User Account (Owner)
+                    $passwordHash = password_hash($password, PASSWORD_DEFAULT);
                     $userId = Database::insert('users', [
                         'business_id' => $businessId,
                         'role_id' => $ownerRoleId,
                         'name' => $name,
                         'email' => $email,
                         'phone' => $phone,
-                        'password' => password_hash($password, PASSWORD_DEFAULT),
+                        'password' => $passwordHash,
                         'is_owner' => 1,
                         'is_active' => 1,
-                        'verification_status' => 'pending',
+                        'email_verified_at' => $isDesktopOffline ? date('Y-m-d H:i:s') : null,
+                        'verification_status' => $isDesktopOffline ? 'verified' : 'pending',
                         'onboarding_completed' => 0
                     ]);
 
@@ -129,23 +169,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'expires_at' => $expiresAt
                     ]);
 
+                    // 5. Desktop Offline Session Provisioning
+                    if ($isDesktopOffline) {
+                        $sessionTableExists = Database::fetchColumn("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='local_sessions'");
+                        if ($sessionTableExists) {
+                            Database::insert('local_sessions', [
+                                'device_id' => 'desktop-local',
+                                'business_id' => $businessId,
+                                'tenant_uuid' => $tenantUuid,
+                                'user_id' => $userId,
+                                'user_email' => $email,
+                                'user_name' => $name,
+                                'role_slug' => 'owner',
+                                'password_hash' => $passwordHash,
+                                'encrypted_api_token' => 'offline_local_token_' . bin2hex(random_bytes(16)),
+                                'status' => 'active',
+                                'last_offline_login_at' => date('Y-m-d H:i:s'),
+                                'expires_at' => date('Y-m-d H:i:s', time() + (30 * 86400))
+                            ]);
+                        }
+                    }
+
                     $db->commit();
 
-                    // 5. Send Verification Email
-                    MailerService::sendVerificationEmail($email, $name, $rawToken);
+                    // Mask sensitive phone in activity log
+                    ActivityLog::log($businessId, $userId, 'registration_initiated', 'user', $userId, "Shopkeeper registered: {$name} ({$shopName}) - Country: {$country}, Currency: {$currency}");
 
-                    ActivityLog::log($businessId, $userId, 'registration_initiated', 'user', $userId, "Shopkeeper registered: {$name} ({$shopName})");
+                    if ($isDesktopOffline) {
+                        // In desktop offline mode, log the newly registered owner in immediately and direct to onboarding
+                        $_SESSION['user_id'] = $userId;
+                        $_SESSION['business_id'] = $businessId;
+                        $_SESSION['tenant_uuid'] = $tenantUuid;
+                        $_SESSION['is_owner'] = true;
+                        $_SESSION['role_slug'] = 'owner';
+                        $_SESSION['user_name'] = $name;
+                        $_SESSION['user_email'] = $email;
+                        $_SESSION['business_name'] = $shopName;
+                        $_SESSION['default_currency'] = $currency;
+                        $_SESSION['auth_mode'] = 'offline';
+                        $_SESSION['onboarding_step'] = 1;
+                        TenantContext::set($businessId, [
+                            'name' => $shopName,
+                            'default_currency' => $currency,
+                            'country' => $country
+                        ]);
 
-                    Flash::success('Registration successful! Please check your email to verify your account.');
-                    header('Location: ' . url('verify-email.php?notice=sent&email=' . urlencode($email)));
-                    exit;
+                        Flash::success("Welcome to YBT Management Software! Let's set up your shop profile.");
+                        header('Location: ' . url('onboarding.php'));
+                        exit;
+                    } else {
+                        // Send verification email in cloud mode
+                        MailerService::sendVerificationEmail($email, $name, $rawToken);
+                        Flash::success('Registration successful! Please check your email to verify your account.');
+                        header('Location: ' . url('verify-email.php?notice=sent&email=' . urlencode($email)));
+                        exit;
+                    }
 
                 } catch (Throwable $e) {
                     if ($db->inTransaction()) {
                         $db->rollBack();
                     }
                     error_log('Registration error: ' . $e->getMessage());
-                    $error = 'A system error occurred during registration. Please try again.';
+                    $error = 'A system error occurred during registration: ' . $e->getMessage();
                 }
             }
         }
@@ -177,7 +262,7 @@ body.public-layout {
 
 .clean-register-card {
     width: 100%;
-    max-width: 580px;
+    max-width: 600px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 16px;
@@ -204,7 +289,7 @@ body.public-layout {
             <i class="ti ti-building-store"></i>
         </div>
         <h1 class="clean-login-title">Register Your Shop</h1>
-        <p class="clean-login-subtitle">Create your commercial account & shop profile</p>
+        <p class="clean-login-subtitle">Create your mobile shop tenant and business profile</p>
     </div>
 
     <?php if (!empty($error)): ?>
@@ -225,7 +310,7 @@ body.public-layout {
                 <div class="clean-input-box">
                     <i class="ti ti-user input-icon"></i>
                     <input type="text" id="name" name="name" class="clean-input" 
-                           placeholder="e.g. Ramesh Sharma" required 
+                           placeholder="e.g. Tariq Mehmood" required 
                            value="<?= e($_POST['name'] ?? '') ?>" autocomplete="name">
                 </div>
             </div>
@@ -235,7 +320,7 @@ body.public-layout {
                 <div class="clean-input-box">
                     <i class="ti ti-phone input-icon"></i>
                     <input type="tel" id="phone" name="phone" class="clean-input" 
-                           placeholder="+91 98765 43210" required 
+                           placeholder="+92 300 1234567" required 
                            value="<?= e($_POST['phone'] ?? '') ?>" autocomplete="tel">
                 </div>
             </div>
@@ -268,16 +353,44 @@ body.public-layout {
                     <select id="shop_type" name="shop_type" class="clean-input" style="padding-left: 1rem;">
                         <?php
                         $types = [
-                            'Mobile Shop',
-                            'Mobile Repair Shop',
-                            'Mobile Accessories Shop',
-                            'Electronics Shop',
-                            'General Retail Shop',
-                            'Other'
+                            'Mobile Shop & Service Center',
+                            'Mobile Phone Retail',
+                            'Mobile Repair & Spare Parts',
+                            'Electronics & Accessories',
+                            'Wholesale & Distribution',
+                            'General Retail'
                         ];
                         foreach ($types as $t):
                         ?>
                         <option value="<?= e($t) ?>" <?= (($_POST['shop_type'] ?? '') === $t) ? 'selected' : '' ?>><?= e($t) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="clean-form-row">
+            <div class="clean-form-group">
+                <label for="country" class="clean-label">Country *</label>
+                <div class="clean-input-box">
+                    <select id="country" name="country" class="clean-input" style="padding-left: 1rem;" onchange="updateCountryDefaults(this.value)">
+                        <?php foreach ($supportedCountries as $cKey => $cData): ?>
+                        <option value="<?= e($cKey) ?>" <?= (($_POST['country'] ?? 'Pakistan') === $cKey) ? 'selected' : '' ?> data-currency="<?= e($cData['currency']) ?>">
+                            <?= e($cData['name']) ?> (<?= e($cData['currency']) ?>)
+                        </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+
+            <div class="clean-form-group">
+                <label for="currency" class="clean-label">Default Currency *</label>
+                <div class="clean-input-box">
+                    <select id="currency" name="currency" class="clean-input" style="padding-left: 1rem;">
+                        <?php foreach ($supportedCurrencies as $currCode => $currData): ?>
+                        <option value="<?= e($currCode) ?>" <?= (($_POST['currency'] ?? 'PKR') === $currCode) ? 'selected' : '' ?>>
+                            <?= e($currCode) ?> — <?= e($currData['symbol']) ?> (<?= e($currData['name']) ?>)
+                        </option>
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -301,15 +414,6 @@ body.public-layout {
                     <input type="password" id="confirm_password" name="confirm_password" class="clean-input" 
                            placeholder="••••••••" required minlength="8" autocomplete="new-password">
                 </div>
-            </div>
-        </div>
-
-        <div class="clean-form-group">
-            <label for="country" class="clean-label">Country</label>
-            <div class="clean-input-box">
-                <i class="ti ti-world input-icon"></i>
-                <input type="text" id="country" name="country" class="clean-input" 
-                       value="<?= e($_POST['country'] ?? 'India') ?>">
             </div>
         </div>
 
@@ -337,8 +441,16 @@ body.public-layout {
     </div>
 </div>
 
-<div class="clean-login-footer mt-4">
-    &copy; <?= date('Y') ?> <?= e(APP_NAME) ?> &bull; Enterprise SaaS Edition
-</div>
+<script>
+function updateCountryDefaults(country) {
+    const countrySelect = document.getElementById('country');
+    const currencySelect = document.getElementById('currency');
+    const selectedOption = countrySelect.options[countrySelect.selectedIndex];
+    const defaultCurr = selectedOption.getAttribute('data-currency');
+    if (defaultCurr) {
+        currencySelect.value = defaultCurr;
+    }
+}
+</script>
 
 <?php require YBT_ROOT . '/includes/footer.php'; ?>

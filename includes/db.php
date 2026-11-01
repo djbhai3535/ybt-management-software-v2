@@ -170,7 +170,7 @@ class Database {
 
         // Auto-compatibility on SQLite for sync & schema fields
         if (self::getDriver() === 'sqlite') {
-            $syncTables = ['payments', 'invoices', 'customers', 'products', 'expenses'];
+            $syncTables = ['payments', 'invoices', 'customers', 'products', 'expenses', 'users', 'staff_invitations'];
             if (in_array($table, $syncTables, true)) {
                 if (!isset($paramsOrData['uuid'])) {
                     $paramsOrData['uuid'] = function_exists('generateUuidV4') 
@@ -183,7 +183,19 @@ class Database {
                 if (!isset($paramsOrData['updated_at'])) {
                     $paramsOrData['updated_at'] = date('Y-m-d H:i:s');
                 }
-                if ($table === 'payments') {
+                if ($table === 'businesses') {
+                if (isset($paramsOrData['default_currency']) && !isset($paramsOrData['currency'])) {
+                    $paramsOrData['currency'] = $paramsOrData['default_currency'];
+                } elseif (isset($paramsOrData['currency']) && !isset($paramsOrData['default_currency'])) {
+                    $paramsOrData['default_currency'] = $paramsOrData['currency'];
+                }
+                if (isset($paramsOrData['gstin']) && !isset($paramsOrData['tax_number'])) {
+                    $paramsOrData['tax_number'] = $paramsOrData['gstin'];
+                } elseif (isset($paramsOrData['tax_number']) && !isset($paramsOrData['gstin'])) {
+                    $paramsOrData['gstin'] = $paramsOrData['tax_number'];
+                }
+            }
+            if ($table === 'payments') {
                     if (isset($paramsOrData['method']) && !isset($paramsOrData['payment_method'])) {
                         $paramsOrData['payment_method'] = $paramsOrData['method'];
                     } elseif (isset($paramsOrData['payment_method']) && !isset($paramsOrData['method'])) {

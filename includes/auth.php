@@ -15,47 +15,105 @@ class Auth {
         // Dual Engine: Local SQLite offline authentication for desktop
         if (Database::getDriver() === 'sqlite') {
             $session = Database::fetch(
-                "SELECT s.*, b.name as business_name 
+                "SELECT s.*, b.name as business_name, b.default_currency, b.tenant_uuid 
                  FROM `local_sessions` s 
                  LEFT JOIN `businesses` b ON s.business_id = b.id 
                  WHERE s.user_email = ? AND s.status = 'active' LIMIT 1",
                 [$email]
             );
 
-            if (!$session) {
+            $passwordHash = null;
+            $userRecord = null;
+
+            if ($session) {
+                $passwordHash = $session['password_hash'];
+            } else {
+                // Fallback to checking the local unified users table directly
+                $userRecord = Database::fetch(
+                    "SELECT u.*, r.slug as role_slug, b.name as business_name, b.default_currency, b.tenant_uuid, b.status as business_status, b.onboarding_step 
+                     FROM users u 
+                     JOIN roles r ON u.role_id = r.id 
+                     JOIN businesses b ON u.business_id = b.id 
+                     WHERE u.email = ? LIMIT 1",
+                    [$email]
+                );
+                if ($userRecord && !empty($userRecord['is_active'])) {
+                    $passwordHash = $userRecord['password'];
+                }
+            }
+
+            if (!$passwordHash || !password_verify($password, $passwordHash)) {
                 return ['success' => false, 'error' => 'Invalid email or password.'];
             }
 
-            if (!password_verify($password, $session['password_hash'])) {
-                return ['success' => false, 'error' => 'Invalid email or password.'];
-            }
+            $userId = (int)($session['user_id'] ?? $userRecord['id']);
+            $businessId = (int)($session['business_id'] ?? $userRecord['business_id']);
+            $roleSlug = $session['role_slug'] ?? $userRecord['role_slug'] ?? 'staff';
+            $isOwner = ($roleSlug === 'owner') || (!empty($session['is_owner'])) || (!empty($userRecord['is_owner']));
+            $userName = $session['user_name'] ?? $userRecord['name'];
+            $userEmail = $session['user_email'] ?? $userRecord['email'];
+            $businessName = $session['business_name'] ?? $userRecord['business_name'] ?? 'Local Business';
+            $defaultCurrency = $session['default_currency'] ?? $userRecord['default_currency'] ?? 'PKR';
+            $tenantUuid = $session['tenant_uuid'] ?? $userRecord['tenant_uuid'] ?? '';
+            $onboardingCompleted = (int)($userRecord['onboarding_completed'] ?? 1);
 
-            // Update last offline login timestamp
-            Database::query("UPDATE `local_sessions` SET `last_offline_login_at` = datetime('now') WHERE id = ?", [$session['id']]);
+            // Upsert / update local_sessions table for future fast offline access
+            try {
+                if ($session) {
+                    Database::query("UPDATE `local_sessions` SET `last_offline_login_at` = datetime('now') WHERE id = ?", [$session['id']]);
+                } else {
+                    Database::insert('local_sessions', [
+                        'device_id' => 'desktop-local',
+                        'business_id' => $businessId,
+                        'tenant_uuid' => $tenantUuid,
+                        'user_id' => $userId,
+                        'user_email' => $userEmail,
+                        'user_name' => $userName,
+                        'role_slug' => $roleSlug,
+                        'password_hash' => $passwordHash,
+                        'encrypted_api_token' => 'offline_local_token_' . bin2hex(random_bytes(16)),
+                        'status' => 'active',
+                        'last_offline_login_at' => date('Y-m-d H:i:s'),
+                        'expires_at' => date('Y-m-d H:i:s', time() + (30 * 86400))
+                    ]);
+                }
+            } catch (\Throwable $t) {
+                // Non-critical session sync
+            }
 
             // Regenerate session ID safely
             if (!headers_sent() && session_status() === PHP_SESSION_ACTIVE) {
                 session_regenerate_id(true);
             }
 
-            $_SESSION['user_id'] = (int)$session['user_id'];
-            $_SESSION['business_id'] = (int)$session['business_id'];
-            $_SESSION['is_owner'] = ($session['role_slug'] === 'owner');
-            $_SESSION['role_slug'] = $session['role_slug'];
-            $_SESSION['user_name'] = $session['user_name'];
-            $_SESSION['user_email'] = $session['user_email'];
-            $_SESSION['business_name'] = $session['business_name'] ?? 'Local Business';
+            $_SESSION['user_id'] = $userId;
+            $_SESSION['business_id'] = $businessId;
+            $_SESSION['tenant_uuid'] = $tenantUuid;
+            $_SESSION['is_owner'] = $isOwner;
+            $_SESSION['role_slug'] = $roleSlug;
+            $_SESSION['user_name'] = $userName;
+            $_SESSION['user_email'] = $userEmail;
+            $_SESSION['business_name'] = $businessName;
+            $_SESSION['default_currency'] = $defaultCurrency;
             $_SESSION['login_time'] = time();
             $_SESSION['auth_mode'] = 'offline';
+
+            TenantContext::set($businessId, [
+                'name' => $businessName,
+                'default_currency' => $defaultCurrency,
+                'tenant_uuid' => $tenantUuid,
+                'role_slug' => $roleSlug,
+                'is_owner' => $isOwner
+            ]);
 
             return [
                 'success' => true,
                 'user' => [
-                    'id' => (int)$session['user_id'],
-                    'name' => $session['user_name'],
-                    'email' => $session['user_email'],
-                    'role_slug' => $session['role_slug'],
-                    'onboarding_completed' => 1
+                    'id' => $userId,
+                    'name' => $userName,
+                    'email' => $userEmail,
+                    'role_slug' => $roleSlug,
+                    'onboarding_completed' => $onboardingCompleted
                 ],
                 'mode' => 'offline'
             ];
