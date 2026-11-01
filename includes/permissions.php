@@ -1,10 +1,19 @@
 <?php
 /**
- * YBT Management Software — Permissions
+ * YBT Management Software — Role-Based Access Control (RBAC) Permissions
+ * Database-driven permission resolution across MySQL and SQLite offline modes
+ * with fail-closed Owner anti-privilege-escalation enforcement.
  */
 
 class Permissions {
     private static ?array $userPermissions = null;
+
+    /**
+     * Clear cached permissions (e.g. after role or permission update)
+     */
+    public static function clearCache(): void {
+        self::$userPermissions = null;
+    }
 
     /**
      * Load all permission keys for the current user
@@ -14,26 +23,9 @@ class Permissions {
             return self::$userPermissions;
         }
 
-        // Owner has all permissions
+        // Owner always has unrestricted wildcard access across all engines
         if (Auth::isOwner()) {
-            if (Database::getDriver() === 'sqlite') {
-                self::$userPermissions = ['*'];
-                return self::$userPermissions;
-            }
-            $all = Database::fetchAll("SELECT `key` FROM permissions");
-            self::$userPermissions = array_column($all, 'key');
-            return self::$userPermissions;
-        }
-
-        if (Database::getDriver() === 'sqlite') {
-            // Manager role permissions in desktop offline mode
-            self::$userPermissions = [
-                'dashboard.view', 'customers.view', 'customers.create', 'customers.edit',
-                'products.view', 'products.create', 'products.edit',
-                'invoices.view', 'invoices.create', 'invoices.edit',
-                'payments.view', 'payments.create',
-                'expenses.view', 'expenses.create'
-            ];
+            self::$userPermissions = ['*'];
             return self::$userPermissions;
         }
 
@@ -44,7 +36,7 @@ class Permissions {
         }
 
         $user = Database::fetch("SELECT role_id FROM users WHERE id = ?", [$userId]);
-        if (!$user) {
+        if (!$user || empty($user['role_id'])) {
             self::$userPermissions = [];
             return [];
         }
@@ -55,7 +47,30 @@ class Permissions {
              WHERE rp.role_id = ?",
             [$user['role_id']]
         );
-        self::$userPermissions = array_column($perms, 'key');
+
+        if (!empty($perms)) {
+            self::$userPermissions = array_column($perms, 'key');
+            return self::$userPermissions;
+        }
+
+        // Fallback default operational permissions by role slug if not explicitly in DB
+        $roleSlug = $_SESSION['role_slug'] ?? 'staff';
+        if ($roleSlug === 'manager') {
+            self::$userPermissions = [
+                'dashboard.view', 'customers.view', 'customers.create', 'customers.edit',
+                'leads.view', 'leads.create', 'leads.edit',
+                'products.view', 'products.create', 'products.edit',
+                'invoices.view', 'invoices.create', 'invoices.edit',
+                'payments.view', 'payments.create',
+                'expenses.view', 'expenses.create', 'tasks.view', 'tasks.create'
+            ];
+        } else {
+            self::$userPermissions = [
+                'dashboard.view', 'customers.view', 'customers.create',
+                'products.view', 'invoices.view', 'invoices.create',
+                'payments.view', 'payments.create'
+            ];
+        }
         return self::$userPermissions;
     }
 
@@ -99,81 +114,91 @@ class Permissions {
      * Require a permission or abort with 403
      */
     public static function require(string $permissionKey): void {
+        Auth::requireLogin();
         if (!self::has($permissionKey)) {
             http_response_code(403);
-            Flash::error('You do not have permission to perform this action.');
-            header('Location: ' . APP_URL . '/dashboard.php');
+            require YBT_ROOT . '/errors/403.php';
             exit;
         }
     }
 
     /**
-     * Require Owner role
+     * Require any of the given permissions or abort with 403
+     */
+    public static function requireAny(array $keys): void {
+        Auth::requireLogin();
+        if (!self::hasAny($keys)) {
+            http_response_code(403);
+            require YBT_ROOT . '/errors/403.php';
+            exit;
+        }
+    }
+
+    /**
+     * Require owner role or abort with 403
      */
     public static function requireOwner(): void {
+        Auth::requireLogin();
         if (!Auth::isOwner()) {
             http_response_code(403);
-            Flash::error('This action requires Owner access.');
-            header('Location: ' . APP_URL . '/dashboard.php');
+            require YBT_ROOT . '/errors/403.php';
             exit;
         }
     }
 
     /**
-     * Get all permissions grouped
+     * Get all permissions grouped by category
      */
-    public static function getAllGrouped(): array {
-        $all = Database::fetchAll("SELECT * FROM permissions ORDER BY group_name, id");
+    public static function allGrouped(): array {
+        $all = Database::fetchAll("SELECT * FROM permissions ORDER BY group_name, sort_order, label");
         $grouped = [];
-        foreach ($all as $p) {
-            $grouped[$p['group_name']][] = $p;
+        foreach ($all as $perm) {
+            $grouped[$perm['group_name']][] = $perm;
         }
         return $grouped;
     }
 
     /**
-     * Get permissions for a role
+     * Get permissions for a specific role
      */
     public static function forRole(int $roleId): array {
-        return Database::fetchAll(
-            "SELECT p.`key` FROM permissions p 
+        $perms = Database::fetchAll(
+            "SELECT p.* FROM permissions p 
              JOIN role_permissions rp ON p.id = rp.permission_id 
-             WHERE rp.role_id = ?",
+             WHERE rp.role_id = ? 
+             ORDER BY p.group_name, p.sort_order",
             [$roleId]
         );
+        return $perms;
     }
 
     /**
-     * Update permissions for a role
+     * Sync permissions for a role
      */
-    public static function updateRole(int $roleId, array $permissionKeys): void {
-        Database::beginTransaction();
+    public static function syncRole(int $roleId, array $permissionIds): void {
+        // Anti-escalation guard: Do not allow modifying Owner role
+        $role = Database::fetch("SELECT slug FROM roles WHERE id = ?", [$roleId]);
+        if ($role && $role['slug'] === 'owner') {
+            throw new RuntimeException("Cannot modify permissions of the Owner role.");
+        }
+
+        $db = Database::getInstance();
+        $db->beginTransaction();
         try {
             Database::query("DELETE FROM role_permissions WHERE role_id = ?", [$roleId]);
-            if (!empty($permissionKeys)) {
-                $placeholders = implode(',', array_fill(0, count($permissionKeys), '?'));
-                $permIds = Database::fetchAll(
-                    "SELECT id FROM permissions WHERE `key` IN ({$placeholders})",
-                    $permissionKeys
-                );
-                foreach ($permIds as $p) {
-                    Database::query(
-                        "INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)",
-                        [$roleId, $p['id']]
-                    );
-                }
+            foreach ($permissionIds as $permId) {
+                Database::insert('role_permissions', [
+                    'role_id'       => $roleId,
+                    'permission_id' => (int)$permId,
+                ]);
             }
-            Database::commit();
+            $db->commit();
+            self::clearCache();
         } catch (Exception $e) {
-            Database::rollback();
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
             throw $e;
         }
-    }
-
-    /**
-     * Clear cached permissions (call after permission change)
-     */
-    public static function clearCache(): void {
-        self::$userPermissions = null;
     }
 }
