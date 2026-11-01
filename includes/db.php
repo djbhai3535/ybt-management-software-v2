@@ -147,6 +147,62 @@ class Database {
 
         // Table-name format: Database::insert('table_name', ['col' => 'val'])
         $table = str_replace('`', '``', $tableOrSql);
+
+        // Auto-compatibility on SQLite for sync & schema fields
+        if (self::getDriver() === 'sqlite') {
+            $syncTables = ['payments', 'invoices', 'customers', 'products', 'expenses'];
+            if (in_array($table, $syncTables, true)) {
+                if (!isset($paramsOrData['uuid'])) {
+                    $paramsOrData['uuid'] = function_exists('generateUuidV4') 
+                        ? generateUuidV4() 
+                        : sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+                }
+                if (!isset($paramsOrData['created_at'])) {
+                    $paramsOrData['created_at'] = date('Y-m-d H:i:s');
+                }
+                if (!isset($paramsOrData['updated_at'])) {
+                    $paramsOrData['updated_at'] = date('Y-m-d H:i:s');
+                }
+                if ($table === 'payments') {
+                    if (isset($paramsOrData['method']) && !isset($paramsOrData['payment_method'])) {
+                        $paramsOrData['payment_method'] = $paramsOrData['method'];
+                    } elseif (isset($paramsOrData['payment_method']) && !isset($paramsOrData['method'])) {
+                        $paramsOrData['method'] = $paramsOrData['payment_method'];
+                    }
+                    if (isset($paramsOrData['reference']) && !isset($paramsOrData['transaction_reference'])) {
+                        $paramsOrData['transaction_reference'] = $paramsOrData['reference'];
+                    } elseif (isset($paramsOrData['transaction_reference']) && !isset($paramsOrData['reference'])) {
+                        $paramsOrData['reference'] = $paramsOrData['transaction_reference'];
+                    }
+                }
+                if ($table === 'expenses') {
+                    if (isset($paramsOrData['category_id']) && !isset($paramsOrData['category'])) {
+                        try {
+                            $catName = self::fetch("SELECT name FROM expense_categories WHERE id = ?", [$paramsOrData['category_id']]);
+                            $paramsOrData['category'] = $catName['name'] ?? 'General';
+                        } catch (\Throwable $e) {
+                            $paramsOrData['category'] = 'General';
+                        }
+                    } elseif (isset($paramsOrData['category']) && !isset($paramsOrData['category_id'])) {
+                        try {
+                            $cat = self::fetch("SELECT id FROM expense_categories WHERE name = ?", [$paramsOrData['category']]);
+                            $paramsOrData['category_id'] = $cat['id'] ?? 1;
+                        } catch (\Throwable $e) {
+                            $paramsOrData['category_id'] = 1;
+                        }
+                    }
+                    if (!isset($paramsOrData['category'])) {
+                        $paramsOrData['category'] = 'General';
+                    }
+                    if (isset($paramsOrData['method']) && !isset($paramsOrData['payment_method'])) {
+                        $paramsOrData['payment_method'] = $paramsOrData['method'];
+                    } elseif (isset($paramsOrData['payment_method']) && !isset($paramsOrData['method'])) {
+                        $paramsOrData['method'] = $paramsOrData['payment_method'];
+                    }
+                }
+            }
+        }
+
         $columns = array_keys($paramsOrData);
         if (empty($columns)) {
             throw new InvalidArgumentException("Cannot insert empty dataset into {$tableOrSql}.");

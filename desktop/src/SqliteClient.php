@@ -92,7 +92,8 @@ class SqliteClient {
                     try {
                         $this->pdo->exec($stmtSql);
                     } catch (\PDOException $pe) {
-                        if (!str_contains(strtolower($pe->getMessage()), 'duplicate column')) {
+                        $msg = strtolower($pe->getMessage());
+                        if (!str_contains($msg, 'duplicate column') && !str_contains($msg, 'already exists')) {
                             throw $pe;
                         }
                     }
@@ -174,6 +175,44 @@ class SqliteClient {
                     'expires_at' => date('Y-m-d H:i:s', time() + (365 * 86400)),
                     'status' => 'active'
                 ]);
+            }
+
+            // 4. Ensure demo users exist in `users` table for staff/manager queries
+            $usersTableExists = $this->fetchColumn("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='users'");
+            if ($usersTableExists) {
+                $ownerUser = $this->fetch("SELECT id FROM `users` WHERE `email` = 'owner@ybt.com'");
+                if (!$ownerUser) {
+                    $this->insert('users', [
+                        'id' => 1,
+                        'business_id' => 1,
+                        'role_id' => 1,
+                        'name' => 'Vikram Malhotra',
+                        'email' => 'owner@ybt.com',
+                        'phone' => '+91 98201 12345',
+                        'password' => '$2y$10$v9bn2FQbgixG4ardHYPxZ.i6Q5YCn6XI1wGKaKYKbwa/zZycfFPs6',
+                        'is_owner' => 1,
+                        'is_active' => 1,
+                        'verification_status' => 'verified',
+                        'onboarding_completed' => 1
+                    ]);
+                }
+
+                $mgrUser = $this->fetch("SELECT id FROM `users` WHERE `email` = 'manager@ybt.com'");
+                if (!$mgrUser) {
+                    $this->insert('users', [
+                        'id' => 2,
+                        'business_id' => 1,
+                        'role_id' => 2,
+                        'name' => 'Rohan Verma',
+                        'email' => 'manager@ybt.com',
+                        'phone' => '+91 98202 54321',
+                        'password' => '$2y$10$v9bn2FQbgixG4ardHYPxZ.i6Q5YCn6XI1wGKaKYKbwa/zZycfFPs6',
+                        'is_owner' => 0,
+                        'is_active' => 1,
+                        'verification_status' => 'verified',
+                        'onboarding_completed' => 1
+                    ]);
+                }
             }
         } catch (\Throwable $e) {
             error_log('seedDemoAccounts notice: ' . $e->getMessage());
