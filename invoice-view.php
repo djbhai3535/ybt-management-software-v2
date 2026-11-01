@@ -26,6 +26,22 @@ if (!$invoice) {
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'cancel_invoice') {
+    Permissions::require('invoices.edit');
+    if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
+        Flash::error('Invalid security token.');
+    } else {
+        try {
+            $cancelRes = InvoiceService::cancel($invoiceId, $businessId, Auth::id() ?? 1);
+            Flash::success('Invoice has been cancelled and inventory stock restored.');
+            header('Location: ' . url('invoice-view.php?id=' . $invoiceId));
+            exit;
+        } catch (\Throwable $e) {
+            Flash::error('Error cancelling invoice: ' . $e->getMessage());
+        }
+    }
+}
+
 $business = Database::fetch("SELECT * FROM businesses WHERE id = ?", [$businessId]);
 
 $pageTitle = $invoice['invoice_number'] . ' — Invoice';
@@ -50,6 +66,15 @@ require YBT_ROOT . '/includes/header.php';
         <a href="<?= url('payments.php?invoice_id=' . $invoice['id'] . '&action=record') ?>" class="btn btn-success">
             <i class="ti ti-cash mr-1"></i> Record Payment
         </a>
+        <?php endif; ?>
+        <?php if ($invoice['status'] !== 'cancelled' && Permissions::has('invoices.edit')): ?>
+        <form method="POST" action="<?= url('invoice-view.php?id=' . $invoice['id']) ?>" style="display:inline;" onsubmit="return confirm('Are you sure you want to cancel this invoice? Stock for all line items will automatically be restored.');">
+            <?= Csrf::field() ?>
+            <input type="hidden" name="action" value="cancel_invoice">
+            <button type="submit" class="btn btn-danger">
+                <i class="ti ti-ban mr-1"></i> Cancel & Restock
+            </button>
+        </form>
         <?php endif; ?>
     </div>
 </div>

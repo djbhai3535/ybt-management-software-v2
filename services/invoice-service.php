@@ -119,61 +119,77 @@ class InvoiceService {
             $grandTotal = max(0, ($subtotal - $overallDiscount) + $taxTotal);
             $status = $data['status'] ?? 'sent';
 
-            // Snapshots
-            $businessSnapshot = json_encode([
-                'name' => $business['name'],
-                'legal_name' => $business['legal_name'],
-                'gstin' => $business['gstin'],
-                'pan' => $business['pan'],
-                'email' => $business['email'],
-                'phone' => $business['phone'],
-                'address' => trim("{$business['address_line1']} {$business['address_line2']}, {$business['city']}, {$business['state']} {$business['postal_code']}"),
-                'bank_name' => $business['bank_name'],
-                'account_number' => $business['account_number'],
-                'ifsc_code' => $business['ifsc_code'],
-                'upi_id' => $business['upi_id']
-            ]);
+            // Address builders
+            $bStreet = trim(($business['address_line1'] ?? '') . ' ' . ($business['address_line2'] ?? ''));
+            $bCity = $business['city'] ?? '';
+            $bState = $business['state'] ?? '';
+            $bZip = $business['postal_code'] ?? '';
+            $bAddr = trim("{$bStreet}, {$bCity}, {$bState} {$bZip}");
 
-            $customerSnapshot = json_encode([
-                'name' => $customer['name'],
-                'company_name' => $customer['company_name'],
-                'gstin' => $customer['gstin'],
-                'email' => $customer['email'],
-                'phone' => $customer['phone'],
-                'address' => trim("{$customer['billing_address_line1']} {$customer['billing_address_line2']}, {$customer['billing_city']}, {$customer['billing_state']} {$customer['billing_postal_code']}")
-            ]);
+            $cStreet = trim(($customer['billing_address_line1'] ?? $customer['address'] ?? '') . ' ' . ($customer['billing_address_line2'] ?? ''));
+            $cCity = $customer['billing_city'] ?? $customer['city'] ?? '';
+            $cState = $customer['billing_state'] ?? $customer['state'] ?? '';
+            $cZip = $customer['billing_postal_code'] ?? $customer['postal_code'] ?? '';
+            $cAddr = trim("{$cStreet}, {$cCity}, {$cState} {$cZip}");
 
-            // Insert invoice header
-            $invoiceId = Database::insert('invoices', [
+            // Insert invoice header with full dual SQLite/MySQL compatibility
+            $invoiceRecord = [
+                'uuid' => generateUuidV4(),
                 'business_id' => $businessId,
                 'customer_id' => $customer['id'],
-                'quotation_id' => !empty($data['quotation_id']) ? (int)$data['quotation_id'] : null,
+                'customer_uuid' => $customer['uuid'] ?? null,
                 'invoice_number' => $invoiceNumber,
                 'invoice_date' => $invoiceDate,
                 'due_date' => $dueDate,
                 'subtotal' => $subtotal,
-                'discount_total' => $totalDiscount + $overallDiscount,
+                'discount_amount' => $totalDiscount + $overallDiscount,
+                'tax_amount' => $taxTotal,
                 'tax_total' => $taxTotal,
                 'cgst_total' => $cgstTotal,
                 'sgst_total' => $sgstTotal,
                 'igst_total' => $igstTotal,
                 'grand_total' => $grandTotal,
                 'amount_paid' => 0.00,
+                'paid_amount' => 0.00,
                 'outstanding' => $grandTotal,
                 'status' => $status,
+                'payment_status' => ($status === 'paid') ? 'paid' : 'unpaid',
                 'notes' => trim($data['notes'] ?? $business['default_notes'] ?? ''),
                 'terms' => trim($data['terms'] ?? $business['default_terms'] ?? ''),
-                'place_of_supply' => $customer['billing_state'] ?? $business['state'],
-                'business_snapshot' => $businessSnapshot,
-                'customer_snapshot' => $customerSnapshot,
-                'issued_at' => ($status !== 'draft') ? date('Y-m-d H:i:s') : null,
-                'created_by' => $userId
-            ]);
+                'place_of_supply' => !empty($customer['billing_state']) ? $customer['billing_state'] : (!empty($customer['state']) ? $customer['state'] : ($business['state'] ?? 'State')),
+                'billing_address' => $cAddr,
+                'shipping_address' => $cAddr,
+                'sync_status' => 'pending',
+                'created_by' => $userId,
+                'created_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s')
+            ];
+
+            $invoiceId = Database::insert('invoices', $invoiceRecord);
 
             // Insert line items
             foreach ($processedItems as $row) {
-                $row['invoice_id'] = $invoiceId;
-                Database::insert('invoice_items', $row);
+                $rowItem = [
+                    'invoice_id' => $invoiceId,
+                    'product_id' => $row['product_id'],
+                    'description' => $row['description'],
+                    'quantity' => $row['quantity'],
+                    'unit' => $row['unit'] ?? 'piece',
+                    'unit_price' => $row['unit_price'],
+                    'discount_amount' => $row['discount_amount'],
+                    'tax_rate' => $row['tax_rate'],
+                    'tax_amount' => $row['tax_amount'],
+                    'hsn_sac' => $row['hsn_sac'] ?? '',
+                    'line_total' => $row['line_total'],
+                    'sort_order' => $row['sort_order'] ?? 1
+                ];
+                Database::insert('invoice_items', $rowItem);
+            }
+
+            // Stage 2: Automatic Stock Deduction & Oversell Prevention
+            if ($status !== 'draft') {
+                require_once __DIR__ . '/stock-service.php';
+                StockService::deductForInvoice($businessId, $invoiceId, $userId);
             }
 
             ActivityLog::log($businessId, $userId, 'invoice_created', 'invoice', $invoiceId, "Created invoice {$invoiceNumber} for ₹" . number_format($grandTotal, 2));
@@ -184,6 +200,16 @@ class InvoiceService {
             $db->rollBack();
             throw $e;
         }
+    }
+
+    /**
+     * Cancel an invoice and idempotently restore stock
+     */
+    public static function cancel(int $invoiceId, int $businessId, int $userId): array {
+        require_once __DIR__ . '/stock-service.php';
+        $res = StockService::restoreForCancelledInvoice($businessId, $invoiceId, $userId);
+        ActivityLog::log($businessId, $userId, 'invoice_cancelled', 'invoice', $invoiceId, "Cancelled invoice #{$invoiceId} and restored inventory");
+        return $res;
     }
 
     /**
