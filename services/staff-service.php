@@ -1,7 +1,8 @@
 <?php
 /**
  * YBT Management Software — Staff Service
- * Multi-tenant safe staff invitation, user onboarding, role management, and status control.
+ * Multi-tenant safe staff invitation, user onboarding, role management, status control,
+ * and strict Owner anti-privilege-escalation protection.
  */
 
 require_once __DIR__ . '/mailer-service.php';
@@ -9,6 +10,7 @@ require_once __DIR__ . '/mailer-service.php';
 class StaffService {
     /**
      * Invite a new staff member to join the business
+     * ENFORCES ANTI-ESCALATION: Cannot assign Owner role to invited staff
      */
     public static function invite(int $businessId, int $invitedBy, string $email, string $name, int $roleId): array {
         $email = strtolower(trim($email));
@@ -22,9 +24,14 @@ class StaffService {
         }
 
         // Validate role belongs to this business or is a valid system role
-        $role = Database::fetch("SELECT id, name FROM roles WHERE id = ? AND (business_id = ? OR is_system = 1)", [$roleId, $businessId]);
+        $role = Database::fetch("SELECT id, name, slug FROM roles WHERE id = ? AND (business_id = ? OR is_system = 1)", [$roleId, $businessId]);
         if (!$role) {
             return ['success' => false, 'error' => 'Selected role does not exist.'];
+        }
+
+        // ANTI-PRIVILEGE ESCALATION GUARD: Owner role can NEVER be assigned to an invited staff member
+        if ($role['slug'] === 'owner') {
+            return ['success' => false, 'error' => 'Cannot assign Owner role to invited staff. Only the original registration creates an Owner.'];
         }
 
         // Check if an active account already exists with this email
@@ -60,6 +67,7 @@ class StaffService {
 
         MailerService::sendStaffInvitationEmail($email, $name, $shopName, $rawToken);
 
+        // Security: Never log raw invitation token in ActivityLog
         ActivityLog::log($businessId, $invitedBy, 'staff_invited', 'staff_invitation', $invitationId, "Invited staff member {$name} ({$email}) as {$role['name']}");
 
         return [
@@ -67,6 +75,7 @@ class StaffService {
             'invitation_id' => $invitationId,
             'email' => $email,
             'name' => $name,
+            'role_slug' => $role['slug'],
             'raw_token' => $rawToken
         ];
     }
@@ -81,7 +90,7 @@ class StaffService {
 
         $tokenHash = hash('sha256', $rawToken);
         $invitation = Database::fetch(
-            "SELECT si.*, b.name as business_name, r.slug as role_slug 
+            "SELECT si.*, b.name as business_name, b.tenant_uuid, r.slug as role_slug 
              FROM staff_invitations si
              JOIN businesses b ON si.business_id = b.id
              JOIN roles r ON si.role_id = r.id
@@ -99,30 +108,59 @@ class StaffService {
             return ['success' => false, 'error' => 'This invitation has expired. Please ask the shop owner to resend it.'];
         }
 
+        // Double-check: ensure invitation role is not owner
+        if ($invitation['role_slug'] === 'owner') {
+            return ['success' => false, 'error' => 'Security Error: Cannot activate an Owner account through staff invitation.'];
+        }
+
         $db = Database::getInstance();
         $db->beginTransaction();
 
         try {
+            $now = date('Y-m-d H:i:s');
+
             // Mark invitation accepted
             Database::query(
-                "UPDATE staff_invitations SET status = 'accepted', accepted_at = NOW() WHERE id = ?",
-                [$invitation['id']]
+                "UPDATE staff_invitations SET status = 'accepted', accepted_at = ? WHERE id = ?",
+                [$now, $invitation['id']]
             );
 
-            // Create user
+            // Create user — STRICTLY is_owner = 0
+            $passwordHash = password_hash($password, PASSWORD_DEFAULT);
             $userId = Database::insert('users', [
                 'business_id' => $invitation['business_id'],
                 'role_id' => $invitation['role_id'],
                 'name' => $invitation['name'],
                 'email' => $invitation['email'],
                 'phone' => $phone ?? '',
-                'password' => password_hash($password, PASSWORD_DEFAULT),
+                'password' => $passwordHash,
                 'is_owner' => 0,
                 'is_active' => 1,
-                'email_verified_at' => date('Y-m-d H:i:s'),
+                'email_verified_at' => $now,
                 'verification_status' => 'verified',
                 'onboarding_completed' => 1
             ]);
+
+            // Offline desktop provisioning
+            if (Database::getDriver() === 'sqlite') {
+                $sessionTableExists = Database::fetchColumn("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='local_sessions'");
+                if ($sessionTableExists) {
+                    Database::insert('local_sessions', [
+                        'device_id' => 'desktop-local',
+                        'business_id' => $invitation['business_id'],
+                        'tenant_uuid' => $invitation['tenant_uuid'] ?? '',
+                        'user_id' => $userId,
+                        'user_email' => $invitation['email'],
+                        'user_name' => $invitation['name'],
+                        'role_slug' => $invitation['role_slug'],
+                        'password_hash' => $passwordHash,
+                        'encrypted_api_token' => 'offline_staff_token_' . bin2hex(random_bytes(16)),
+                        'status' => 'active',
+                        'last_offline_login_at' => $now,
+                        'expires_at' => date('Y-m-d H:i:s', time() + (30 * 86400))
+                    ]);
+                }
+            }
 
             $db->commit();
 
@@ -132,7 +170,7 @@ class StaffService {
                 'invitation_accepted',
                 'user',
                 $userId,
-                "Staff member {$invitation['name']} accepted invitation and registered."
+                "Staff member {$invitation['name']} accepted invitation and registered as {$invitation['role_slug']}."
             );
 
             return [
@@ -155,7 +193,23 @@ class StaffService {
     }
 
     /**
+     * Cancel / Revoke a pending invitation
+     */
+    public static function cancelInvitation(int $businessId, int $invitationId): array {
+        $inv = Database::fetch("SELECT id, email, name FROM staff_invitations WHERE id = ? AND business_id = ? AND status = 'pending'", [$invitationId, $businessId]);
+        if (!$inv) {
+            return ['success' => false, 'error' => 'Pending invitation not found in this business.'];
+        }
+
+        Database::query("UPDATE staff_invitations SET status = 'cancelled' WHERE id = ?", [$invitationId]);
+        ActivityLog::log($businessId, Auth::id() ?? 1, 'invitation_cancelled', 'staff_invitation', $invitationId, "Cancelled invitation for {$inv['name']} ({$inv['email']})");
+
+        return ['success' => true];
+    }
+
+    /**
      * Update active / suspended status of staff member
+     * ENFORCES OWNER PROTECTION: Owner cannot be suspended or deactivated
      */
     public static function updateStatus(int $businessId, int $staffUserId, int $isActive): array {
         $user = Database::fetch(
@@ -167,19 +221,29 @@ class StaffService {
             return ['success' => false, 'error' => 'Staff user not found in this business.'];
         }
 
-        if ($user['is_owner']) {
-            return ['success' => false, 'error' => 'Cannot modify owner account status.'];
+        // OWNER PROTECTION GUARD: Owner can NEVER be deactivated or suspended
+        if (!empty($user['is_owner'])) {
+            return ['success' => false, 'error' => 'Owner accounts cannot be deactivated, suspended, or modified through team settings.'];
         }
 
         $newVerif = $isActive ? 'verified' : 'suspended';
         Database::query(
-            "UPDATE users SET is_active = ?, verification_status = ? WHERE id = ? AND business_id = ?",
+            "UPDATE users SET is_active = ?, verification_status = ?, updated_at = datetime('now') WHERE id = ? AND business_id = ?",
             [$isActive ? 1 : 0, $newVerif, $staffUserId, $businessId]
         );
 
+        // Update local session if on SQLite
+        if (Database::getDriver() === 'sqlite') {
+            Database::query("UPDATE local_sessions SET status = ? WHERE user_id = ? AND business_id = ?", [$isActive ? 'active' : 'suspended', $staffUserId, $businessId]);
+        }
+
         // If deactivated, revoke all API tokens immediately
         if (!$isActive) {
-            Database::query("DELETE FROM api_tokens WHERE user_id = ?", [$staffUserId]);
+            try {
+                Database::query("DELETE FROM api_tokens WHERE user_id = ?", [$staffUserId]);
+            } catch (\Throwable $t) {
+                // Ignore if api_tokens table not present
+            }
         }
 
         ActivityLog::log(
@@ -200,7 +264,7 @@ class StaffService {
     public static function listStaff(int $businessId): array {
         return Database::fetchAll(
             "SELECT u.id, u.business_id, u.name, u.email, u.phone, u.role_id, r.name as role_name, r.slug as role_slug,
-                    u.is_owner, u.is_active, u.verification_status, u.last_login_at, u.created_at
+                    u.is_owner, u.is_active, u.verification_status, u.created_at
              FROM users u
              JOIN roles r ON u.role_id = r.id
              WHERE u.business_id = ?
@@ -210,11 +274,11 @@ class StaffService {
     }
 
     /**
-     * List all pending invitations
+     * List all pending and recent invitations
      */
     public static function listInvitations(int $businessId): array {
         return Database::fetchAll(
-            "SELECT si.id, si.email, si.name, si.role_id, r.name as role_name, si.status, si.expires_at, si.created_at,
+            "SELECT si.id, si.email, si.name, si.role_id, r.name as role_name, r.slug as role_slug, si.status, si.expires_at, si.created_at,
                     u.name as invited_by_name
              FROM staff_invitations si
              JOIN roles r ON si.role_id = r.id

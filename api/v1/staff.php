@@ -1,6 +1,7 @@
 <?php
 /**
  * YBT Management Software — REST API v1 Staff Management & Invitations
+ * Multi-tenant safe staff invitation, user onboarding, role management, and status control.
  */
 
 require_once dirname(__DIR__, 2) . '/services/staff-service.php';
@@ -40,14 +41,16 @@ if ($subRoute === '/invite' && $method === 'POST') {
 
     $result = StaffService::invite($tenantId, $userId, $email, $name, $roleId);
     if (!$result['success']) {
-        apiError($result['error'], 'INVITATION_FAILED', 400);
+        $status = str_contains($result['error'], 'Cannot assign Owner') ? 403 : 400;
+        apiError($result['error'], 'INVITATION_FAILED', $status);
     }
 
     apiResponse([
         'message' => "Invitation dispatched successfully to {$email}.",
         'invitation_id' => $result['invitation_id'],
         'email' => $email,
-        'name' => $name
+        'name' => $name,
+        'role_slug' => $result['role_slug']
     ], 201);
 }
 
@@ -73,6 +76,28 @@ if ($subRoute === '/status' && ($method === 'PUT' || $method === 'POST')) {
         'message' => 'Staff account status updated successfully.',
         'user_id' => $targetUserId,
         'is_active' => (bool)$isActive
+    ]);
+}
+
+// 4. POST /staff/cancel-invitation — Revoke pending invitation
+if ($subRoute === '/cancel-invitation' && $method === 'POST') {
+    if (empty($authenticatedUser['is_owner'])) {
+        apiError('Only the business owner can cancel invitations.', 'FORBIDDEN', 403);
+    }
+
+    $invitationId = (int)($input['invitation_id'] ?? 0);
+    if ($invitationId <= 0) {
+        apiError('Valid invitation_id is required.', 'VALIDATION_FAILED', 422);
+    }
+
+    $result = StaffService::cancelInvitation($tenantId, $invitationId);
+    if (!$result['success']) {
+        apiError($result['error'], 'CANCEL_FAILED', 400);
+    }
+
+    apiResponse([
+        'message' => 'Invitation cancelled successfully.',
+        'invitation_id' => $invitationId
     ]);
 }
 

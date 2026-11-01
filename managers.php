@@ -1,6 +1,7 @@
 <?php
 /**
  * YBT Management Software — Managers & Team Permissions
+ * Multi-tenant safe staff invitation, user onboarding, role management, and status control.
  */
 
 require_once __DIR__ . '/includes/bootstrap.php';
@@ -41,8 +42,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     'phone' => trim($_POST['phone'] ?? ''),
                     'password' => password_hash($password, PASSWORD_DEFAULT),
                     'is_owner' => 0,
-                    'is_active' => 1
+                    'is_active' => 1,
+                    'email_verified_at' => date('Y-m-d H:i:s'),
+                    'verification_status' => 'verified',
+                    'onboarding_completed' => 1
                 ]);
+
+                // Also insert into local_sessions for immediate offline access
+                if (Database::getDriver() === 'sqlite') {
+                    $sessionTableExists = Database::fetchColumn("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='local_sessions'");
+                    if ($sessionTableExists) {
+                        Database::insert('local_sessions', [
+                            'device_id' => 'desktop-local',
+                            'business_id' => $businessId,
+                            'tenant_uuid' => $_SESSION['tenant_uuid'] ?? '',
+                            'user_id' => $newId,
+                            'user_email' => $email,
+                            'user_name' => $name,
+                            'role_slug' => 'manager',
+                            'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+                            'encrypted_api_token' => 'offline_mgr_token_' . bin2hex(random_bytes(16)),
+                            'status' => 'active',
+                            'last_offline_login_at' => date('Y-m-d H:i:s'),
+                            'expires_at' => date('Y-m-d H:i:s', time() + (30 * 86400))
+                        ]);
+                    }
+                }
 
                 ActivityLog::log($businessId, $userId, 'manager_created', 'user', $newId, "Added manager {$name} ({$email})");
                 Flash::success("Manager account for '{$name}' created successfully.");
@@ -52,7 +77,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
     }
 }
-
 
 // Handle Invite Staff POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'invite_staff') {
@@ -64,9 +88,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $email = strtolower(trim($_POST['email'] ?? ''));
         $roleId = (int)($_POST['role_id'] ?? 0);
 
+        // Anti-escalation check: forbid assigning owner role
+        $role = Database::fetch("SELECT slug FROM roles WHERE id = ? AND (business_id = ? OR is_system = 1)", [$roleId, $businessId]);
+        if (!$role || $role['slug'] === 'owner') {
+            Flash::error('Cannot assign Owner role to invited staff.');
+            header('Location: ' . url('managers.php'));
+            exit;
+        }
+
         $res = StaffService::invite($businessId, $userId, $email, $name, $roleId);
         if ($res['success']) {
             Flash::success("Staff invitation dispatched successfully to {$email}.");
+        } else {
+            Flash::error($res['error']);
+        }
+        header('Location: ' . url('managers.php'));
+        exit;
+    }
+}
+
+// Handle Cancel Staff Invitation POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'cancel_invitation') {
+    Permissions::requireOwner();
+    if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
+        Flash::error('Invalid security token.');
+    } else {
+        $invId = (int)($_POST['invitation_id'] ?? 0);
+        $res = StaffService::cancelInvitation($businessId, $invId);
+        if ($res['success']) {
+            Flash::success("Invitation cancelled successfully.");
         } else {
             Flash::error($res['error']);
         }
@@ -124,9 +174,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-
 $pendingInvitations = StaffService::listInvitations($businessId);
-$availableRoles = Database::fetchAll("SELECT id, name, slug FROM roles WHERE business_id = ? OR is_system = 1 ORDER BY id ASC", [$businessId]);
+// Exclude owner role from invitation choices
+$availableRoles = Database::fetchAll("SELECT id, name, slug FROM roles WHERE (business_id = ? OR is_system = 1) AND slug != 'owner' ORDER BY id ASC", [$businessId]);
 
 // Fetch users
 $users = Database::fetchAll(
@@ -158,16 +208,21 @@ require YBT_ROOT . '/includes/header.php';
 <div class="page-header d-flex justify-between align-center mb-4">
     <div>
         <h1 class="page-title">Managers & Team Access</h1>
-        <p class="page-subtitle">Configure operator accounts, delegate responsibilities, and control access permissions</p>
+        <p class="page-subtitle">Configure operator accounts, invite employees, and fine-tune Role-Based Access Control (RBAC)</p>
     </div>
-    <div class="page-header-actions">
+    <div class="page-header-actions d-flex gap-2">
         <?php if (Auth::isOwner()): ?>
+        <button type="button" class="btn btn-outline" data-modal-target="invite-staff-modal">
+            <i class="ti ti-mail-forward mr-1"></i> Invite Employee
+        </button>
         <button type="button" class="btn btn-primary" data-modal-target="add-manager-modal">
-            <i class="ti ti-user-plus mr-1"></i> Add Manager
+            <i class="ti ti-user-plus mr-1"></i> Add Manager Directly
         </button>
         <?php endif; ?>
     </div>
 </div>
+
+<?php Flash::render(); ?>
 
 <!-- Team Accounts Table -->
 <div class="card mb-4">
@@ -183,7 +238,8 @@ require YBT_ROOT . '/includes/header.php';
                         <th>Role</th>
                         <th>Contact</th>
                         <th>Status</th>
-                        <th>Last Login</th>
+                        <th>Created</th>
+                        <th class="text-right">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -207,11 +263,26 @@ require YBT_ROOT . '/includes/header.php';
                         </td>
                         <td><?= e($u['phone'] ?: '—') ?></td>
                         <td>
-                            <span class="badge badge-<?= $u['is_active'] ? 'success' : 'secondary' ?>">
-                                <?= $u['is_active'] ? 'Active' : 'Inactive' ?>
+                            <span class="badge badge-<?= $u['is_active'] ? 'success' : 'danger' ?>">
+                                <?= $u['is_active'] ? 'Active' : 'Suspended' ?>
                             </span>
                         </td>
-                        <td><?= !empty($u['last_login_at']) ? timeAgo($u['last_login_at']) : 'Never' ?></td>
+                        <td><?= !empty($u['created_at']) ? date('d M Y', strtotime($u['created_at'])) : '—' ?></td>
+                        <td class="text-right">
+                            <?php if ($u['is_owner']): ?>
+                                <span class="badge badge-primary text-xs"><i class="ti ti-shield-check mr-1"></i> Protected Owner</span>
+                            <?php elseif (Auth::isOwner()): ?>
+                                <form method="POST" action="<?= url('managers.php') ?>" style="display:inline;">
+                                    <?= Csrf::field() ?>
+                                    <input type="hidden" name="action" value="toggle_staff_status">
+                                    <input type="hidden" name="user_id" value="<?= (int)$u['id'] ?>">
+                                    <input type="hidden" name="is_active" value="<?= $u['is_active'] ? '0' : '1' ?>">
+                                    <button type="submit" class="btn btn-xs btn-<?= $u['is_active'] ? 'outline-danger' : 'outline-success' ?>">
+                                        <?= $u['is_active'] ? 'Suspend' : 'Activate' ?>
+                                    </button>
+                                </form>
+                            <?php endif; ?>
+                        </td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -220,24 +291,23 @@ require YBT_ROOT . '/includes/header.php';
     </div>
 </div>
 
-
 <!-- Pending Invitations Card -->
 <?php if (!empty($pendingInvitations)): ?>
 <div class="card mb-4">
     <div class="card-header">
-        <h3 class="card-title"><i class="ti ti-mail-opened mr-1 text-warning"></i> Pending Staff Invitations</h3>
+        <h3 class="card-title"><i class="ti ti-mail-opened mr-1 text-warning"></i> Staff Invitations</h3>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Invited Name</th>
+                        <th>Invited Member</th>
                         <th>Email</th>
                         <th>Assigned Role</th>
                         <th>Status</th>
-                        <th>Invited By</th>
                         <th>Expires At</th>
+                        <th class="text-right">Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -251,8 +321,21 @@ require YBT_ROOT . '/includes/header.php';
                                 <?= ucfirst($inv['status']) ?>
                             </span>
                         </td>
-                        <td><?= e($inv['invited_by_name'] ?? 'System') ?></td>
                         <td><?= date('M d, Y H:i', strtotime($inv['expires_at'])) ?></td>
+                        <td class="text-right">
+                            <?php if ($inv['status'] === 'pending' && Auth::isOwner()): ?>
+                                <form method="POST" action="<?= url('managers.php') ?>" style="display:inline;">
+                                    <?= Csrf::field() ?>
+                                    <input type="hidden" name="action" value="cancel_invitation">
+                                    <input type="hidden" name="invitation_id" value="<?= (int)$inv['id'] ?>">
+                                    <button type="submit" class="btn btn-xs btn-outline-danger" onclick="return confirm('Cancel this invitation?');">
+                                        Cancel / Revoke
+                                    </button>
+                                </form>
+                            <?php else: ?>
+                                —
+                            <?php endif; ?>
+                        </td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
@@ -306,12 +389,11 @@ require YBT_ROOT . '/includes/header.php';
 </div>
 <?php endif; ?>
 
-
 <!-- Invite Staff Modal -->
 <div class="modal-backdrop" id="invite-staff-modal">
     <div class="modal-card">
         <div class="modal-header">
-            <h3 class="modal-title"><i class="ti ti-mail-forward mr-1 text-primary"></i> Invite Staff via Email</h3>
+            <h3 class="modal-title"><i class="ti ti-mail-forward mr-1 text-primary"></i> Invite Employee via Email</h3>
             <button type="button" class="modal-close" data-modal-close>&times;</button>
         </div>
         <form action="<?= url('managers.php') ?>" method="POST">
@@ -320,22 +402,21 @@ require YBT_ROOT . '/includes/header.php';
 
             <div class="modal-body">
                 <div class="form-group mb-3">
-                    <label class="form-label required">Full Name</label>
-                    <input type="text" name="name" class="form-input" placeholder="e.g. Ali Khan" required>
+                    <label class="form-label required">Employee Full Name</label>
+                    <input type="text" name="name" class="form-input" placeholder="e.g. Bilal Ahmed" required>
                 </div>
                 <div class="form-group mb-3">
                     <label class="form-label required">Email Address</label>
-                    <input type="email" name="email" class="form-input" placeholder="staff@company.com" required>
+                    <input type="email" name="email" class="form-input" placeholder="bilal@mobileshop.com" required>
                 </div>
                 <div class="form-group mb-3">
-                    <label class="form-label required">Select Role</label>
+                    <label class="form-label required">Select Assigned Role</label>
                     <select name="role_id" class="form-select" required>
                         <?php foreach ($availableRoles as $r): ?>
-                            <?php if ($r['slug'] !== 'owner'): ?>
-                                <option value="<?= (int)$r['id'] ?>"><?= e($r['name']) ?></option>
-                            <?php endif; ?>
+                            <option value="<?= (int)$r['id'] ?>"><?= e($r['name']) ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <div class="text-xs text-muted mt-1">Managers have operational management rights. Staff members are limited to POS billing.</div>
                 </div>
             </div>
 
@@ -361,19 +442,19 @@ require YBT_ROOT . '/includes/header.php';
             <div class="modal-body">
                 <div class="form-group mb-3">
                     <label class="form-label required">Full Name</label>
-                    <input type="text" name="name" class="form-input" placeholder="e.g. Rohan Verma" required>
+                    <input type="text" name="name" class="form-input" placeholder="e.g. Asim Raza" required>
                 </div>
                 <div class="form-group mb-3">
                     <label class="form-label required">Email Address (Login)</label>
-                    <input type="email" name="email" class="form-input" placeholder="manager@company.com" required>
+                    <input type="email" name="email" class="form-input" placeholder="asim@mobileshop.com" required>
                 </div>
                 <div class="form-group mb-3">
                     <label class="form-label">Phone Number</label>
-                    <input type="text" name="phone" class="form-input" placeholder="+91 98765 43210">
+                    <input type="text" name="phone" class="form-input" placeholder="+92 300 1234567">
                 </div>
                 <div class="form-group">
                     <label class="form-label required">Initial Password</label>
-                    <input type="password" name="password" class="form-input" value="password123" required>
+                    <input type="password" name="password" class="form-input" value="password123" required minlength="8">
                     <span class="text-xs text-muted">Default is 'password123'. The manager can change it in their profile.</span>
                 </div>
             </div>

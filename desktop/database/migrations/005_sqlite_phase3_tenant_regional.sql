@@ -1,7 +1,7 @@
 -- ============================================================
 -- YBT Management Software — Phase 3 Tenant Regional & International Parity
 -- Migration: 005_sqlite_phase3_tenant_regional.sql
--- Description: Adds default_currency, tax_number, wallet fields, industry, and user timestamps/UUIDs
+-- Description: Adds default_currency, tax_number, wallet fields, industry, user timestamps/UUIDs, api_tokens, and activity_logs parity
 -- Idempotent & Non-Destructive
 -- ============================================================
 
@@ -24,3 +24,25 @@ ALTER TABLE `users` ADD COLUMN `updated_at` TEXT DEFAULT CURRENT_TIMESTAMP;
 -- 3. Staff Invitations Parity
 ALTER TABLE `staff_invitations` ADD COLUMN `uuid` TEXT;
 ALTER TABLE `staff_invitations` ADD COLUMN `phone` TEXT;
+ALTER TABLE `staff_invitations` ADD COLUMN `updated_at` TEXT DEFAULT CURRENT_TIMESTAMP;
+
+-- 4. Activity Logs Parity
+ALTER TABLE `activity_logs` ADD COLUMN `description` TEXT;
+ALTER TABLE `activity_logs` ADD COLUMN `old_values` TEXT;
+ALTER TABLE `activity_logs` ADD COLUMN `new_values` TEXT;
+ALTER TABLE `activity_logs` ADD COLUMN `user_agent` TEXT;
+
+-- 5. API Tokens Parity
+CREATE TABLE IF NOT EXISTS `api_tokens` (
+    `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+    `business_id` INTEGER NOT NULL,
+    `user_id` INTEGER NOT NULL,
+    `token_hash` TEXT NOT NULL UNIQUE,
+    `name` TEXT NOT NULL DEFAULT 'desktop_session',
+    `device_id` TEXT DEFAULT NULL,
+    `abilities` TEXT DEFAULT NULL,
+    `last_used_at` TEXT DEFAULT NULL,
+    `expires_at` TEXT NOT NULL,
+    `created_at` TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS `idx_api_tokens_user` ON `api_tokens` (`user_id`);
