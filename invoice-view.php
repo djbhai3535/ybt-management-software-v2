@@ -3,9 +3,12 @@
  * YBT Management Software — Invoice Printable Document & Details
  */
 
+declare(strict_types=1);
+
 require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/services/invoice-service.php';
 require_once __DIR__ . '/services/pdf-service.php';
+require_once __DIR__ . '/services/whatsapp-service.php';
 
 Auth::requireLogin();
 Permissions::require('invoices.view');
@@ -43,30 +46,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 $business = Database::fetch("SELECT * FROM businesses WHERE id = ?", [$businessId]);
+$whatsAppUrl = WhatsAppService::getClickToChatUrl($invoice, $business, url('invoice-pdf.php?id=' . $invoiceId));
 
 $pageTitle = $invoice['invoice_number'] . ' — Invoice';
 require YBT_ROOT . '/includes/header.php';
 ?>
 
 <!-- Document Actions Toolbar (hidden during print) -->
-<div class="actions-bar d-flex justify-between align-center mb-4 no-print">
+<div class="actions-bar d-flex justify-between align-center mb-4 no-print flex-wrap gap-2">
     <div class="d-flex align-center gap-2">
         <a href="<?= url('invoices.php') ?>" class="btn btn-secondary">
             <i class="ti ti-arrow-left mr-1"></i> Back to Invoices
         </a>
-        <span class="badge badge-<?= $invoice['status'] === 'paid' ? 'success' : ($invoice['status'] === 'overdue' ? 'danger' : 'warning') ?>">
+        <span class="badge badge-<?= $invoice['status'] === 'paid' ? 'success' : ($invoice['status'] === 'overdue' || $invoice['status'] === 'cancelled' ? 'danger' : 'warning') ?>">
             <?= strtoupper(e($invoice['status'])) ?>
         </span>
     </div>
-    <div class="d-flex gap-2">
-        <button type="button" class="btn btn-secondary" onclick="window.print()">
-            <i class="ti ti-printer mr-1"></i> Print / Save PDF
-        </button>
-        <?php if ($invoice['outstanding'] > 0 && Permissions::has('payments.record')): ?>
+    <div class="d-flex gap-2 flex-wrap align-center">
+        <!-- Direct Binary PDF Download -->
+        <a href="<?= url('invoice-pdf.php?id=' . $invoice['id'] . '&download=1') ?>" class="btn btn-primary" title="Download standard PDF file">
+            <i class="ti ti-download mr-1"></i> Download PDF
+        </a>
+
+        <!-- Print A4 View -->
+        <a href="<?= url('invoice-pdf.php?id=' . $invoice['id']) ?>" class="btn btn-secondary" title="View Full A4 Document">
+            <i class="ti ti-printer mr-1"></i> Print A4
+        </a>
+
+        <!-- Thermal Receipt Dropdown / Buttons -->
+        <div class="d-inline-flex gap-1">
+            <a href="<?= url('invoice-thermal-print.php?id=' . $invoice['id'] . '&size=80mm') ?>" class="btn btn-secondary" title="Thermal POS Receipt (80mm)">
+                <i class="ti ti-receipt mr-1"></i> Thermal 80mm
+            </a>
+            <a href="<?= url('invoice-thermal-print.php?id=' . $invoice['id'] . '&size=58mm') ?>" class="btn btn-secondary" title="Thermal POS Receipt (58mm)">
+                <i class="ti ti-receipt-2 mr-1"></i> 58mm
+            </a>
+        </div>
+
+        <!-- WhatsApp Sharing -->
+        <a href="<?= $whatsAppUrl ?>" target="_blank" class="btn btn-success" style="background-color: #25d366; border-color: #25d366;" title="Share Invoice on WhatsApp">
+            <i class="ti ti-brand-whatsapp mr-1"></i> WhatsApp
+        </a>
+
+        <?php if ($invoice['outstanding'] > 0 && $invoice['status'] !== 'cancelled' && Permissions::has('payments.record')): ?>
         <a href="<?= url('payments.php?invoice_id=' . $invoice['id'] . '&action=record') ?>" class="btn btn-success">
             <i class="ti ti-cash mr-1"></i> Record Payment
         </a>
         <?php endif; ?>
+
         <?php if ($invoice['status'] !== 'cancelled' && Permissions::has('invoices.edit')): ?>
         <form method="POST" action="<?= url('invoice-view.php?id=' . $invoice['id']) ?>" style="display:inline;" onsubmit="return confirm('Are you sure you want to cancel this invoice? Stock for all line items will automatically be restored.');">
             <?= Csrf::field() ?>

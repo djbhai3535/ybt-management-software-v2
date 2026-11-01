@@ -3,14 +3,22 @@
  * YBT Management Software — Invoices & Billing Directory
  */
 
+declare(strict_types=1);
+
 require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/services/invoice-service.php';
+require_once __DIR__ . '/services/whatsapp-service.php';
 
 Auth::requireLogin();
 Permissions::require('invoices.view');
 
 $businessId = Auth::businessId();
 $userId = Auth::id();
+
+$business = Database::fetch("SELECT * FROM businesses WHERE id = ?", [$businessId]);
+if (!$business) {
+    $business = ['name' => 'Mobile Shop', 'default_currency' => 'PKR', 'phone' => ''];
+}
 
 // Handle Void Invoice
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'void_invoice') {
@@ -48,7 +56,7 @@ if ($search !== '') {
 
 $whereClause = implode(' AND ', $where);
 $invoices = Database::fetchAll(
-    "SELECT i.*, c.name as customer_name, c.company_name 
+    "SELECT i.*, c.name as customer_name, c.company_name, c.phone as customer_phone 
      FROM invoices i
      JOIN customers c ON i.customer_id = c.id
      WHERE {$whereClause}
@@ -74,9 +82,9 @@ require YBT_ROOT . '/includes/header.php';
     </div>
 </div>
 
-<!-- Status Tabs Nav -->
+<!-- Tabs -->
 <div class="tabs-nav mb-4">
-    <a href="<?= url('invoices.php?status=all') ?>" class="tab-link <?= $status === 'all' ? 'active' : '' ?>">All Invoices</a>
+    <a href="<?= url('invoices.php') ?>" class="tab-link <?= $status === 'all' ? 'active' : '' ?>">All Invoices</a>
     <a href="<?= url('invoices.php?status=sent') ?>" class="tab-link <?= $status === 'sent' ? 'active' : '' ?>">Unpaid / Sent</a>
     <a href="<?= url('invoices.php?status=overdue') ?>" class="tab-link <?= $status === 'overdue' ? 'active' : '' ?>">Overdue</a>
     <a href="<?= url('invoices.php?status=partial') ?>" class="tab-link <?= $status === 'partial' ? 'active' : '' ?>">Partially Paid</a>
@@ -115,12 +123,13 @@ require YBT_ROOT . '/includes/header.php';
                             <th class="text-right">Paid</th>
                             <th class="text-right">Outstanding</th>
                             <th>Status</th>
-                            <th class="text-center">Action</th>
+                            <th class="text-center" style="min-width: 170px;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($invoices as $inv): 
-                            $isOverdue = ($inv['status'] !== 'paid' && $inv['status'] !== 'void' && strtotime($inv['due_date']) < strtotime(date('Y-m-d')));
+                            $isOverdue = (!empty($inv['due_date']) && $inv['status'] !== 'paid' && $inv['status'] !== 'void' && $inv['status'] !== 'cancelled' && strtotime($inv['due_date']) < strtotime(date('Y-m-d')));
+                            $rowWaUrl = WhatsAppService::getClickToChatUrl($inv, $business, url('invoice-pdf.php?id=' . $inv['id']));
                         ?>
                         <tr>
                             <td>
@@ -147,16 +156,30 @@ require YBT_ROOT . '/includes/header.php';
                                 <?= formatCurrency($inv['outstanding']) ?>
                             </td>
                             <td>
-                                <span class="badge badge-<?= $inv['status'] === 'paid' ? 'success' : ($isOverdue || $inv['status'] === 'overdue' ? 'danger' : ($inv['status'] === 'partial' ? 'warning' : 'primary')) ?>">
+                                <span class="badge badge-<?= $inv['status'] === 'paid' ? 'success' : ($isOverdue || $inv['status'] === 'overdue' || $inv['status'] === 'cancelled' ? 'danger' : ($inv['status'] === 'partial' ? 'warning' : 'primary')) ?>">
                                     <?= ucfirst($inv['status']) ?>
                                 </span>
                             </td>
                             <td class="text-center">
                                 <div class="d-flex justify-center gap-1">
+                                    <!-- Download PDF -->
+                                    <a href="<?= url('invoice-pdf.php?id=' . $inv['id'] . '&download=1') ?>" class="btn btn-icon btn-ghost text-primary" title="Download PDF">
+                                        <i class="ti ti-download"></i>
+                                    </a>
+                                    <!-- Thermal 80mm -->
+                                    <a href="<?= url('invoice-thermal-print.php?id=' . $inv['id'] . '&size=80mm') ?>" class="btn btn-icon btn-ghost" title="Thermal POS Receipt">
+                                        <i class="ti ti-receipt"></i>
+                                    </a>
+                                    <!-- WhatsApp Share -->
+                                    <a href="<?= $rowWaUrl ?>" target="_blank" class="btn btn-icon btn-ghost text-success" title="Share via WhatsApp">
+                                        <i class="ti ti-brand-whatsapp"></i>
+                                    </a>
+                                    <!-- View & Full Print -->
                                     <a href="<?= url('invoice-view.php?id=' . $inv['id']) ?>" class="btn btn-icon btn-ghost" title="View & Print">
                                         <i class="ti ti-printer"></i>
                                     </a>
-                                    <?php if ($inv['outstanding'] > 0 && Permissions::has('payments.record')): ?>
+                                    <!-- Record Payment -->
+                                    <?php if ($inv['outstanding'] > 0 && $inv['status'] !== 'cancelled' && Permissions::has('payments.record')): ?>
                                     <a href="<?= url('payments.php?invoice_id=' . $inv['id'] . '&action=record') ?>" class="btn btn-icon btn-ghost text-success" title="Record Payment">
                                         <i class="ti ti-cash"></i>
                                     </a>
