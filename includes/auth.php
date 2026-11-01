@@ -12,7 +12,56 @@ class Auth {
         $maxAttempts = $config['login_max_attempts'];
         $lockoutMins = $config['login_lockout_mins'];
 
-        // Find user
+        // Dual Engine: Local SQLite offline authentication for desktop
+        if (Database::getDriver() === 'sqlite') {
+            $session = Database::fetch(
+                "SELECT s.*, b.name as business_name 
+                 FROM `local_sessions` s 
+                 LEFT JOIN `businesses` b ON s.business_id = b.id 
+                 WHERE s.user_email = ? AND s.status = 'active' LIMIT 1",
+                [$email]
+            );
+
+            if (!$session) {
+                return ['success' => false, 'error' => 'Invalid email or password.'];
+            }
+
+            if (!password_verify($password, $session['password_hash'])) {
+                return ['success' => false, 'error' => 'Invalid email or password.'];
+            }
+
+            // Update last offline login timestamp
+            Database::query("UPDATE `local_sessions` SET `last_offline_login_at` = datetime('now') WHERE id = ?", [$session['id']]);
+
+            // Regenerate session ID safely
+            if (!headers_sent() && session_status() === PHP_SESSION_ACTIVE) {
+                session_regenerate_id(true);
+            }
+
+            $_SESSION['user_id'] = (int)$session['user_id'];
+            $_SESSION['business_id'] = (int)$session['business_id'];
+            $_SESSION['is_owner'] = ($session['role_slug'] === 'owner');
+            $_SESSION['role_slug'] = $session['role_slug'];
+            $_SESSION['user_name'] = $session['user_name'];
+            $_SESSION['user_email'] = $session['user_email'];
+            $_SESSION['business_name'] = $session['business_name'] ?? 'Local Business';
+            $_SESSION['login_time'] = time();
+            $_SESSION['auth_mode'] = 'offline';
+
+            return [
+                'success' => true,
+                'user' => [
+                    'id' => (int)$session['user_id'],
+                    'name' => $session['user_name'],
+                    'email' => $session['user_email'],
+                    'role_slug' => $session['role_slug'],
+                    'onboarding_completed' => 1
+                ],
+                'mode' => 'offline'
+            ];
+        }
+
+        // MySQL Cloud Authentication Flow
         $user = Database::fetch(
             "SELECT u.*, r.slug as role_slug, b.name as business_name, b.status as business_status, b.onboarding_step 
              FROM users u 

@@ -31,14 +31,24 @@ if ($config['debug']) {
 ini_set('log_errors', '1');
 ini_set('error_log', YBT_ROOT . '/storage/logs/php-errors.log');
 
-// Session configuration
-ini_set('session.cookie_httponly', $config['session_httponly'] ? '1' : '0');
-ini_set('session.cookie_samesite', $config['session_samesite']);
+// Session configuration & persistent save path
+$sessionSavePath = YBT_ROOT . '/storage/sessions';
+if (getenv('APPDATA')) {
+    $sessionSavePath = str_replace('\\', '/', getenv('APPDATA')) . '/YBT Management Software/storage/sessions';
+}
+if (!is_dir($sessionSavePath)) {
+    @mkdir($sessionSavePath, 0755, true);
+}
+if (is_dir($sessionSavePath) && is_writable($sessionSavePath)) {
+    session_save_path($sessionSavePath);
+}
+
+ini_set('session.cookie_httponly', '1');
+ini_set('session.cookie_path', '/');
+ini_set('session.cookie_samesite', 'Lax');
 ini_set('session.use_strict_mode', '1');
 ini_set('session.use_only_cookies', '1');
-if ($config['session_secure']) {
-    ini_set('session.cookie_secure', '1');
-}
+ini_set('session.cookie_secure', '0'); // Loopback 127.0.0.1 is HTTP
 session_name($config['session_name']);
 
 // Start session

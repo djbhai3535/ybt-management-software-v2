@@ -86,7 +86,17 @@ class SqliteClient {
             }
             if (!in_array($name, $applied, true)) {
                 $sql = file_get_contents($file);
-                $this->pdo->exec($sql);
+                $statements = array_filter(array_map('trim', explode(';', $sql)));
+                foreach ($statements as $stmtSql) {
+                    if (empty($stmtSql)) continue;
+                    try {
+                        $this->pdo->exec($stmtSql);
+                    } catch (\PDOException $pe) {
+                        if (!str_contains(strtolower($pe->getMessage()), 'duplicate column')) {
+                            throw $pe;
+                        }
+                    }
+                }
 
                 $stmt = $this->pdo->prepare("INSERT INTO `_sqlite_migrations` (migration, applied_at) VALUES (?, datetime('now'))");
                 $stmt->execute([$name]);
@@ -94,7 +104,80 @@ class SqliteClient {
             }
         }
 
+        // Ensure default demo accounts are seeded safely if not present
+        $this->seedDemoAccounts();
+
         return $executed;
+    }
+
+    /**
+     * Safely seed demo accounts (Owner & Manager) without modifying existing user data
+     */
+    public function seedDemoAccounts(): void {
+        try {
+            // Check if local_sessions table exists
+            $tableExists = $this->fetchColumn("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='local_sessions'");
+            if (!$tableExists) {
+                return;
+            }
+
+            // 1. Seed demo business if none exists
+            $businessCount = (int)$this->fetchColumn("SELECT COUNT(*) FROM `businesses`");
+            if ($businessCount === 0) {
+                $this->insert('businesses', [
+                    'id' => 1,
+                    'cloud_id' => 1,
+                    'tenant_uuid' => 'tenant-demo-ybt-001',
+                    'name' => 'YBT Technologies (Demo)',
+                    'legal_name' => 'YBT Technologies Pvt Ltd',
+                    'type' => 'Retail / Technology',
+                    'phone' => '+91 98201 12345',
+                    'sync_status' => 'synced'
+                ]);
+            }
+
+            // 2. Seed owner demo account if not exists
+            $owner = $this->fetch("SELECT id FROM `local_sessions` WHERE `user_email` = 'owner@ybt.com'");
+            if (!$owner) {
+                $this->insert('local_sessions', [
+                    'device_id' => 'desktop_default',
+                    'business_id' => 1,
+                    'tenant_uuid' => 'tenant-demo-ybt-001',
+                    'user_id' => 1,
+                    'user_name' => 'Vikram Malhotra (Owner)',
+                    'user_email' => 'owner@ybt.com',
+                    'role_slug' => 'owner',
+                    'password_hash' => '$2y$10$v9bn2FQbgixG4ardHYPxZ.i6Q5YCn6XI1wGKaKYKbwa/zZycfFPs6', // password123
+                    'encrypted_api_token' => 'offline_token_owner_demo',
+                    'offline_access_allowed' => 1,
+                    'last_online_login_at' => date('Y-m-d H:i:s'),
+                    'expires_at' => date('Y-m-d H:i:s', time() + (365 * 86400)),
+                    'status' => 'active'
+                ]);
+            }
+
+            // 3. Seed manager demo account if not exists
+            $manager = $this->fetch("SELECT id FROM `local_sessions` WHERE `user_email` = 'manager@ybt.com'");
+            if (!$manager) {
+                $this->insert('local_sessions', [
+                    'device_id' => 'desktop_default',
+                    'business_id' => 1,
+                    'tenant_uuid' => 'tenant-demo-ybt-001',
+                    'user_id' => 2,
+                    'user_name' => 'Rohan Verma (Manager)',
+                    'user_email' => 'manager@ybt.com',
+                    'role_slug' => 'manager',
+                    'password_hash' => '$2y$10$v9bn2FQbgixG4ardHYPxZ.i6Q5YCn6XI1wGKaKYKbwa/zZycfFPs6', // password123
+                    'encrypted_api_token' => 'offline_token_manager_demo',
+                    'offline_access_allowed' => 1,
+                    'last_online_login_at' => date('Y-m-d H:i:s'),
+                    'expires_at' => date('Y-m-d H:i:s', time() + (365 * 86400)),
+                    'status' => 'active'
+                ]);
+            }
+        } catch (\Throwable $e) {
+            error_log('seedDemoAccounts notice: ' . $e->getMessage());
+        }
     }
 
     public function query(string $sql, array $params = []): PDOStatement {

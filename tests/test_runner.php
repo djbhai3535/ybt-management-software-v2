@@ -24,6 +24,8 @@ $tests = [
     'Portable PHP & Process Lifecyle'=> __DIR__ . '/test_portable_process.php',
     'Phase 4.2 Complete Multi-Sync'  => __DIR__ . '/test_phase4_complete_sync.php',
     'Phase 4.3 Native EXE & Installer'=> __DIR__ . '/test_phase4_3_native_exe.php',
+    'Phase 4.3 CSRF & Auth Lifecycle' => __DIR__ . '/test_login_csrf_complete.php',
+    'Phase 4.3 Installed Live E2E App'=> __DIR__ . '/test_installed_live_app.php',
 ];
 
 $passedCount = 0;
@@ -31,7 +33,7 @@ $failedCount = 0;
 
 foreach ($tests as $title => $script) {
     echo ">> Running {$title} Suite:\n";
-    $cmd = escapeshellcmd(PHP_BINARY) . ' ' . escapeshellarg($script);
+    $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($script);
     passthru($cmd, $exitCode);
     if ($exitCode === 0) {
         $passedCount++;

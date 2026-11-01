@@ -16,8 +16,24 @@ class Permissions {
 
         // Owner has all permissions
         if (Auth::isOwner()) {
+            if (Database::getDriver() === 'sqlite') {
+                self::$userPermissions = ['*'];
+                return self::$userPermissions;
+            }
             $all = Database::fetchAll("SELECT `key` FROM permissions");
             self::$userPermissions = array_column($all, 'key');
+            return self::$userPermissions;
+        }
+
+        if (Database::getDriver() === 'sqlite') {
+            // Manager role permissions in desktop offline mode
+            self::$userPermissions = [
+                'dashboard.view', 'customers.view', 'customers.create', 'customers.edit',
+                'products.view', 'products.create', 'products.edit',
+                'invoices.view', 'invoices.create', 'invoices.edit',
+                'payments.view', 'payments.create',
+                'expenses.view', 'expenses.create'
+            ];
             return self::$userPermissions;
         }
 
@@ -49,6 +65,7 @@ class Permissions {
     public static function has(string $permissionKey): bool {
         if (Auth::isOwner()) return true;
         $perms = self::load();
+        if (in_array('*', $perms, true)) return true;
         return in_array($permissionKey, $perms, true);
     }
 
@@ -58,6 +75,7 @@ class Permissions {
     public static function hasAny(array $keys): bool {
         if (Auth::isOwner()) return true;
         $perms = self::load();
+        if (in_array('*', $perms, true)) return true;
         foreach ($keys as $key) {
             if (in_array($key, $perms, true)) return true;
         }
@@ -70,6 +88,7 @@ class Permissions {
     public static function hasAll(array $keys): bool {
         if (Auth::isOwner()) return true;
         $perms = self::load();
+        if (in_array('*', $perms, true)) return true;
         foreach ($keys as $key) {
             if (!in_array($key, $perms, true)) return false;
         }

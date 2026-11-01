@@ -8,6 +8,9 @@ class CSRF {
      * Generate or retrieve the current CSRF token
      */
     public static function token(): string {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            @session_start();
+        }
         if (empty($_SESSION['_csrf_token']) || self::isExpired()) {
             $_SESSION['_csrf_token'] = bin2hex(random_bytes(32));
             $_SESSION['_csrf_time'] = time();
@@ -26,6 +29,9 @@ class CSRF {
      * Validate CSRF token from parameter, POST request, or HTTP Header
      */
     public static function validate(?string $token = null): bool {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            @session_start();
+        }
         if ($token === null || $token === '') {
             $token = $_POST['_csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
         }

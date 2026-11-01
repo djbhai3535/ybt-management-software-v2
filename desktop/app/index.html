@@ -266,17 +266,9 @@
             }
 
             if (serverUrl) {
-                if (statusEl) statusEl.textContent = 'Connecting to desktop runtime...';
-                frame.src = serverUrl;
-                frame.onload = () => {
-                    loader.style.display = 'none';
-                    frame.style.display = 'block';
-                };
-                // Fallback display timer in case iframe load event fires before listener
-                setTimeout(() => {
-                    loader.style.display = 'none';
-                    frame.style.display = 'block';
-                }, 3000);
+                if (statusEl) statusEl.textContent = 'Launching application...';
+                // Direct top-level navigation: ensures all session cookies are first-party and CSRF passes!
+                window.location.replace(serverUrl);
             } else {
                 if (statusEl) {
                     statusEl.innerHTML = '<span style="color:var(--danger)">Runtime failed to respond. Please restart application.</span>';

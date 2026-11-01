@@ -1,37 +1,106 @@
 <?php
 /**
  * YBT Management Software — Database Connection (PDO Singleton)
+ * Seamlessly connects to Cloud MySQL or falls back to embedded SQLite in desktop offline mode.
  */
 
 class Database {
     private static ?PDO $instance = null;
+    private static string $driver = 'mysql';
 
     public static function getInstance(): PDO {
         if (self::$instance === null) {
             $config = require YBT_ROOT . '/config/config.php';
-            $dsn = sprintf(
-                'mysql:host=%s;port=%d;dbname=%s;charset=%s',
-                $config['db_host'],
-                $config['db_port'],
-                $config['db_name'],
-                $config['db_charset']
-            );
-            try {
-                self::$instance = new PDO($dsn, $config['db_user'], $config['db_pass'], [
+
+            // Check if SQLite desktop database path is available
+            $sqlitePath = getenv('YBT_SQLITE_PATH') 
+                ?: (getenv('APPDATA') ? str_replace('\\', '/', getenv('APPDATA')) . '/YBT Management Software/storage/desktop/ybt_local.sqlite' : null);
+            if (!$sqlitePath || !file_exists($sqlitePath)) {
+                $candidate = YBT_ROOT . '/storage/desktop/ybt_local.sqlite';
+                if (file_exists($candidate)) {
+                    $sqlitePath = $candidate;
+                }
+            }
+
+            // Test if MySQL is reachable (quick timeout)
+            $tryMysql = true;
+            if (getenv('APP_ENV') === 'desktop' && !empty($sqlitePath) && file_exists($sqlitePath)) {
+                $fp = @fsockopen($config['db_host'], (int)$config['db_port'], $errno, $errstr, 0.15);
+                if (!is_resource($fp)) {
+                    $tryMysql = false;
+                } else {
+                    fclose($fp);
+                }
+            }
+
+            if ($tryMysql) {
+                $dsn = sprintf(
+                    'mysql:host=%s;port=%d;dbname=%s;charset=%s',
+                    $config['db_host'],
+                    $config['db_port'],
+                    $config['db_name'],
+                    $config['db_charset']
+                );
+                try {
+                    self::$instance = new PDO($dsn, $config['db_user'], $config['db_pass'], [
+                        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+                        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                        PDO::ATTR_EMULATE_PREPARES   => false,
+                        PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci",
+                    ]);
+                    self::$driver = 'mysql';
+                    return self::$instance;
+                } catch (\PDOException $e) {
+                    if (empty($sqlitePath) || !file_exists($sqlitePath)) {
+                        if ($config['debug']) {
+                            throw $e;
+                        }
+                        error_log('Database connection failed: ' . $e->getMessage());
+                        die('Database connection error. Please check configuration.');
+                    }
+                }
+            }
+
+            // Fallback to local embedded SQLite database (Desktop Offline Mode)
+            if (!empty($sqlitePath)) {
+                $sqliteDir = dirname($sqlitePath);
+                if (!is_dir($sqliteDir)) {
+                    @mkdir($sqliteDir, 0755, true);
+                }
+
+                self::$instance = new PDO('sqlite:' . $sqlitePath, null, null, [
                     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
                     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                    PDO::ATTR_EMULATE_PREPARES   => false,
-                    PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci",
                 ]);
-            } catch (PDOException $e) {
-                if ($config['debug']) {
-                    throw $e;
+                self::$instance->exec("PRAGMA journal_mode = WAL;");
+                self::$instance->exec("PRAGMA foreign_keys = ON;");
+                self::$instance->sqliteCreateFunction('CURDATE', fn() => date('Y-m-d'));
+                self::$instance->sqliteCreateFunction('NOW', fn() => date('Y-m-d H:i:s'));
+                self::$driver = 'sqlite';
+
+                // Ensure local schema migrations and demo accounts are up to date
+                $sqliteClientPath = YBT_ROOT . '/desktop/src/SqliteClient.php';
+                if (file_exists($sqliteClientPath)) {
+                    require_once $sqliteClientPath;
+                    try {
+                        $client = new SqliteClient($sqlitePath);
+                        $client->runMigrations();
+                    } catch (\Throwable $mErr) {
+                        error_log('SQLite auto-migration notice: ' . $mErr->getMessage());
+                    }
                 }
-                error_log('Database connection failed: ' . $e->getMessage());
-                die('Database connection error. Please check configuration.');
+
+                return self::$instance;
             }
         }
         return self::$instance;
+    }
+
+    public static function getDriver(): string {
+        if (self::$instance === null) {
+            self::getInstance();
+        }
+        return self::$driver;
     }
 
     /**

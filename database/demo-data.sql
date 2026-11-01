@@ -70,8 +70,8 @@ INSERT INTO `users` (
   `id`, `business_id`, `role_id`, `name`, `email`, `phone`, 
   `password`, `is_owner`, `is_active`
 ) VALUES
-(1, 1, 1, 'Vikram Malhotra', 'owner@ybt.com', '+91 98201 12345', '$2y$10$eE0mQO99x7l6eK9vj819Q.Bq1d2I3a4b5C6d7E8f9G0h1i2j3k4l.', 1, 1),
-(2, 1, 2, 'Rohan Verma', 'manager@ybt.com', '+91 98202 54321', '$2y$10$eE0mQO99x7l6eK9vj819Q.Bq1d2I3a4b5C6d7E8f9G0h1i2j3k4l.', 0, 1)
+(1, 1, 1, 'Vikram Malhotra', 'owner@ybt.com', '+91 98201 12345', '$2y$10$v9bn2FQbgixG4ardHYPxZ.i6Q5YCn6XI1wGKaKYKbwa/zZycfFPs6', 1, 1),
+(2, 1, 2, 'Rohan Verma', 'manager@ybt.com', '+91 98202 54321', '$2y$10$v9bn2FQbgixG4ardHYPxZ.i6Q5YCn6XI1wGKaKYKbwa/zZycfFPs6', 0, 1)
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 -- 4. Assign Manager Permissions
