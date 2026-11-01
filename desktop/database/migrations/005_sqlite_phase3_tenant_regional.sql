@@ -1,7 +1,7 @@
 -- ============================================================
 -- YBT Management Software — Phase 3 Tenant Regional & International Parity
 -- Migration: 005_sqlite_phase3_tenant_regional.sql
--- Description: Adds default_currency, tax_number, wallet fields, industry, user timestamps/UUIDs, api_tokens, and activity_logs parity
+-- Description: Adds default_currency, tax_number, wallet fields, industry, user timestamps/UUIDs, api_tokens, and sync queue parity
 -- Idempotent & Non-Destructive
 -- ============================================================
 
@@ -46,3 +46,22 @@ CREATE TABLE IF NOT EXISTS `api_tokens` (
     `created_at` TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS `idx_api_tokens_user` ON `api_tokens` (`user_id`);
+
+-- 6. Sync Operations Queue Parity
+CREATE TABLE IF NOT EXISTS `sync_operations_queue` (
+    `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+    `operation_uuid` TEXT NOT NULL UNIQUE,
+    `business_id` INTEGER NOT NULL,
+    `device_id` TEXT NOT NULL,
+    `entity_type` TEXT NOT NULL,
+    `entity_uuid` TEXT NOT NULL,
+    `operation_type` TEXT NOT NULL,
+    `payload` TEXT NOT NULL,
+    `client_timestamp` TEXT NOT NULL,
+    `status` TEXT DEFAULT 'pending',
+    `retry_count` INTEGER DEFAULT 0,
+    `error_message` TEXT DEFAULT NULL,
+    `synced_at` TEXT DEFAULT NULL,
+    `created_at` TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS `idx_sync_queue_biz_op` ON `sync_operations_queue` (`business_id`, `operation_uuid`);

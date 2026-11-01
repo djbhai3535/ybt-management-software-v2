@@ -345,10 +345,75 @@ if ($method === 'POST') {
                         Database::query("UPDATE expenses SET is_deleted = 1, sync_version = sync_version + 1 WHERE business_id = ? AND sync_uuid = ?", [$tenantId, $entityUuid]);
                     }
                     break;
+
+                // -------------------------------------------------------------
+                // 6. BUSINESS / SHOP PROFILE DEDUPLICATION
+                // -------------------------------------------------------------
+                case 'business':
+                case 'businesses':
+                    $biz = Database::fetch("SELECT id FROM businesses WHERE tenant_uuid = ? OR id = ?", [$entityUuid, $tenantId]);
+                    if ($biz) {
+                        Database::query(
+                            "UPDATE businesses SET 
+                                legal_name = COALESCE(?, legal_name),
+                                name = COALESCE(?, name),
+                                phone = COALESCE(?, phone),
+                                whatsapp = COALESCE(?, whatsapp),
+                                address_line1 = COALESCE(?, address_line1),
+                                city = COALESCE(?, city),
+                                state = COALESCE(?, state),
+                                postal_code = COALESCE(?, postal_code),
+                                country = COALESCE(?, country),
+                                default_currency = COALESCE(?, default_currency),
+                                currency = COALESCE(?, currency),
+                                tax_number = COALESCE(?, tax_number),
+                                gstin = COALESCE(?, gstin),
+                                bank_name = COALESCE(?, bank_name),
+                                account_holder = COALESCE(?, account_holder),
+                                account_number = COALESCE(?, account_number),
+                                ifsc_code = COALESCE(?, ifsc_code),
+                                wallet_id = COALESCE(?, wallet_id),
+                                wallet_type = COALESCE(?, wallet_type),
+                                updated_at = datetime('now')
+                             WHERE id = ?",
+                            [
+                                $payload['legal_name'] ?? null,
+                                $payload['name'] ?? null,
+                                $payload['phone'] ?? null,
+                                $payload['whatsapp'] ?? null,
+                                $payload['address_line1'] ?? null,
+                                $payload['city'] ?? null,
+                                $payload['state'] ?? null,
+                                $payload['postal_code'] ?? null,
+                                $payload['country'] ?? null,
+                                $payload['default_currency'] ?? $payload['currency'] ?? null,
+                                $payload['default_currency'] ?? $payload['currency'] ?? null,
+                                $payload['tax_number'] ?? $payload['gstin'] ?? null,
+                                $payload['tax_number'] ?? $payload['gstin'] ?? null,
+                                $payload['bank_name'] ?? null,
+                                $payload['account_holder'] ?? null,
+                                $payload['account_number'] ?? null,
+                                $payload['ifsc_code'] ?? null,
+                                $payload['wallet_id'] ?? $payload['upi_id'] ?? null,
+                                $payload['wallet_type'] ?? null,
+                                $biz['id']
+                            ]
+                        );
+                    }
+                    break;
             }
 
-            // Record into sync_operations_queue for cloud audit & idempotency
+            // Record into sync_operations_queue for cloud audit & idempotency with sensitive data masking
             try {
+                $loggedPayload = $payload;
+                if (isset($loggedPayload['account_number'])) {
+                    $acc = (string)$loggedPayload['account_number'];
+                    $loggedPayload['account_number'] = strlen($acc) > 4 ? substr($acc, 0, 2) . '****' . substr($acc, -4) : '****';
+                }
+                if (isset($loggedPayload['password'])) {
+                    $loggedPayload['password'] = '********';
+                }
+
                 Database::insert('sync_operations_queue', [
                     'operation_uuid' => $opUuid,
                     'business_id' => $tenantId,
@@ -356,7 +421,7 @@ if ($method === 'POST') {
                     'entity_type' => $entityType,
                     'entity_uuid' => $entityUuid,
                     'operation_type' => $opType,
-                    'payload' => json_encode($payload),
+                    'payload' => json_encode($loggedPayload),
                     'client_timestamp' => $op['client_timestamp'] ?? date('Y-m-d H:i:s'),
                     'status' => 'synced',
                 ]);
