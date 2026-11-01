@@ -119,8 +119,10 @@ function generateUuidV4(): string {
 /**
  * Time ago helper
  */
-function timeAgo(string $datetime): string {
+function timeAgo(?string $datetime): string {
+    if (empty($datetime)) return 'just now';
     $time = strtotime($datetime);
+    if (!$time) return 'just now';
     $diff = time() - $time;
 
     if ($diff < 60) return 'just now';

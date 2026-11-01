@@ -18,13 +18,13 @@ ALTER TABLE `businesses` ADD COLUMN `gst_registered` INTEGER DEFAULT 0;
 
 -- 2. Users Parity for Stable Sync UUIDs and Timestamps
 ALTER TABLE `users` ADD COLUMN `uuid` TEXT;
-ALTER TABLE `users` ADD COLUMN `created_at` TEXT DEFAULT CURRENT_TIMESTAMP;
-ALTER TABLE `users` ADD COLUMN `updated_at` TEXT DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE `users` ADD COLUMN `created_at` TEXT DEFAULT NULL;
+ALTER TABLE `users` ADD COLUMN `updated_at` TEXT DEFAULT NULL;
 
 -- 3. Staff Invitations Parity
 ALTER TABLE `staff_invitations` ADD COLUMN `uuid` TEXT;
 ALTER TABLE `staff_invitations` ADD COLUMN `phone` TEXT;
-ALTER TABLE `staff_invitations` ADD COLUMN `updated_at` TEXT DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE `staff_invitations` ADD COLUMN `updated_at` TEXT DEFAULT NULL;
 
 -- 4. Activity Logs Parity
 ALTER TABLE `activity_logs` ADD COLUMN `description` TEXT;

@@ -81,6 +81,23 @@ class StaffService {
     }
 
     /**
+     * Retrieve invitation by raw token (SHA-256 hash lookup)
+     */
+    public static function getInvitationByToken(string $rawToken): ?array {
+        $tokenHash = hash('sha256', $rawToken);
+        $invitation = Database::fetch(
+            "SELECT si.*, b.name as business_name, b.tenant_uuid, r.name as role_name, r.slug as role_slug 
+             FROM staff_invitations si
+             JOIN businesses b ON si.business_id = b.id
+             JOIN roles r ON si.role_id = r.id
+             WHERE si.token_hash = ? AND si.status = 'pending'
+             LIMIT 1",
+            [$tokenHash]
+        );
+        return $invitation ?: null;
+    }
+
+    /**
      * Accept a staff invitation and create the user account
      */
     public static function acceptInvitation(string $rawToken, string $password, ?string $phone = null): array {
