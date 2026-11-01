@@ -18,6 +18,12 @@ storage/ai-cache/*
 config/config.local.php
 *.log
 
+# Desktop Build Artifacts & Storage
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+storage/desktop/*.sqlite*
+
 # OS & Editor Files
 .DS_Store
 Thumbs.db

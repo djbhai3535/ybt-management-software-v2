@@ -23,6 +23,7 @@ $tests = [
     'Phase 4 Desktop & Offline Sync' => __DIR__ . '/test_phase4_desktop_sync.php',
     'Portable PHP & Process Lifecyle'=> __DIR__ . '/test_portable_process.php',
     'Phase 4.2 Complete Multi-Sync'  => __DIR__ . '/test_phase4_complete_sync.php',
+    'Phase 4.3 Native EXE & Installer'=> __DIR__ . '/test_phase4_3_native_exe.php',
 ];
 
 $passedCount = 0;

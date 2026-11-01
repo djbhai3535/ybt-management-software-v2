@@ -188,6 +188,22 @@
         window.addEventListener('online', updateNetworkStatus);
         window.addEventListener('offline', updateNetworkStatus);
         updateNetworkStatus();
+
+        // Resolve dynamic server URL from Tauri native backend
+        async function initServerUrl() {
+            try {
+                if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+                    const url = await window.__TAURI__.core.invoke('get_server_url');
+                    if (url) document.getElementById('crm-frame').src = url;
+                } else if (window.__TAURI__ && window.__TAURI__.invoke) {
+                    const url = await window.__TAURI__.invoke('get_server_url');
+                    if (url) document.getElementById('crm-frame').src = url;
+                }
+            } catch (e) {
+                console.log('Using default server URL:', e);
+            }
+        }
+        initServerUrl();
     </script>
 </body>
 </html>

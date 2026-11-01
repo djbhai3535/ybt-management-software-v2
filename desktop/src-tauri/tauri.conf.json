@@ -11,6 +11,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "YBT Management Software — Commercial Desktop CRM",
         "width": 1366,
         "height": 820,
@@ -19,8 +20,7 @@
         "resizable": true,
         "fullscreen": false,
         "center": true,
-        "focus": true,
-        "theme": "Auto"
+        "focus": true
       }
     ],
     "security": {
