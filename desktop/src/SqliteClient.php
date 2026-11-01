@@ -11,12 +11,16 @@ class SqliteClient {
     public function __construct(?string $customPath = null) {
         if ($customPath !== null) {
             $this->dbPath = $customPath;
+        } elseif ($envPath = getenv('YBT_SQLITE_PATH')) {
+            $this->dbPath = str_replace('\\', '/', $envPath);
+        } elseif ($appData = getenv('APPDATA')) {
+            $storageDir = str_replace('\\', '/', $appData) . '/YBT Management Software/storage/desktop';
+            if (!is_dir($storageDir)) {
+                @mkdir($storageDir, 0755, true);
+            }
+            $this->dbPath = $storageDir . '/ybt_local.sqlite';
         } else {
             $storageDir = dirname(__DIR__, 2) . '/storage/desktop';
-            // If running inside Program Files without write permissions, fallback to user AppData
-            if (!@is_writable(dirname(__DIR__, 2)) && getenv('APPDATA')) {
-                $storageDir = str_replace('\\', '/', getenv('APPDATA')) . '/YBT Management Software/storage/desktop';
-            }
             if (!is_dir($storageDir)) {
                 @mkdir($storageDir, 0755, true);
             }

@@ -64,71 +64,106 @@ fn find_available_port() -> u16 {
         .unwrap_or(8088)
 }
 
-fn resolve_paths() -> (PathBuf, PathBuf, Option<PathBuf>) {
-    let current_exe = std::env::current_exe().unwrap_or_default();
-    let exe_dir = current_exe.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+/// Strips Windows verbatim prefix (`\\?\`) so PHP and C-runtime can open files cleanly
+fn clean_path(path: &Path) -> PathBuf {
+    let s = path.to_string_lossy();
+    if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        path.to_path_buf()
+    }
+}
 
-    // Candidate locations for php.exe
+fn resolve_paths() -> Result<(PathBuf, PathBuf, Option<PathBuf>, PathBuf), String> {
+    let current_exe = std::env::current_exe().unwrap_or_default();
+    let exe_dir = clean_path(&current_exe.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from(".")));
+
+    // 1. Candidate locations for php.exe
     let php_candidates = [
-        exe_dir.join("php/php.exe"),
-        exe_dir.join("resources/php/php.exe"),
-        exe_dir.join("resources/desktop/php/php.exe"),
-        exe_dir.join("desktop/php/php.exe"),
-        exe_dir.join("../php/php.exe"),
-        exe_dir.join("../desktop/php/php.exe"),
-        exe_dir.join("../../desktop/php/php.exe"),
-        exe_dir.join("../../../desktop/php/php.exe"),
+        exe_dir.join("php").join("php.exe"),
+        exe_dir.join("resources").join("php").join("php.exe"),
+        exe_dir.join("resources").join("desktop").join("php").join("php.exe"),
+        exe_dir.join("desktop").join("php").join("php.exe"),
+        exe_dir.join("..").join("php").join("php.exe"),
+        exe_dir.join("..").join("desktop").join("php").join("php.exe"),
+        exe_dir.join("..").join("..").join("desktop").join("php").join("php.exe"),
+        exe_dir.join("..").join("..").join("..").join("desktop").join("php").join("php.exe"),
         PathBuf::from(r"C:\CRM-Software\desktop\php\php.exe"),
     ];
 
-    let mut resolved_php = PathBuf::from(r"C:\CRM-Software\desktop\php\php.exe");
+    let mut resolved_php = None;
     for cand in &php_candidates {
         if cand.exists() {
-            resolved_php = cand.canonicalize().unwrap_or_else(|_| cand.clone());
+            resolved_php = Some(clean_path(cand));
             break;
         }
     }
+    let resolved_php = resolved_php.ok_or_else(|| {
+        format!("Bundled PHP runtime (php.exe) not found. Checked: {:?}", php_candidates)
+    })?;
 
-    // Candidate locations for project root (where dashboard.php resides)
+    // 2. Candidate locations for project root (where dashboard.php resides)
     let root_candidates = [
         exe_dir.clone(),
         exe_dir.join("resources"),
-        exe_dir.join("../"),
-        exe_dir.join("../../"),
-        exe_dir.join("../../../"),
+        exe_dir.join(".."),
+        exe_dir.join("..").join(".."),
+        exe_dir.join("..").join("..").join(".."),
         PathBuf::from(r"C:\CRM-Software"),
     ];
 
-    let mut resolved_root = PathBuf::from(r"C:\CRM-Software");
+    let mut resolved_root = None;
     for cand in &root_candidates {
         if cand.join("dashboard.php").exists() {
-            resolved_root = cand.canonicalize().unwrap_or_else(|_| cand.clone());
+            resolved_root = Some(clean_path(cand));
             break;
         }
     }
 
     // If dashboard.php is found in resources subfolder
-    if !resolved_root.join("dashboard.php").exists() {
-        let res_cand = exe_dir.join("resources");
-        if res_cand.exists() {
-            if let Ok(entries) = std::fs::read_dir(&res_cand) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() && path.join("dashboard.php").exists() {
-                        resolved_root = path;
-                        break;
+    let resolved_root = match resolved_root {
+        Some(r) => r,
+        None => {
+            let res_cand = exe_dir.join("resources");
+            let mut found = None;
+            if res_cand.exists() {
+                if let Ok(entries) = std::fs::read_dir(&res_cand) {
+                    for entry in entries.flatten() {
+                        let path = clean_path(&entry.path());
+                        if path.is_dir() && path.join("dashboard.php").exists() {
+                            found = Some(path);
+                            break;
+                        }
                     }
                 }
             }
+            found.ok_or_else(|| {
+                format!("Application root containing dashboard.php not found. Checked: {:?}", root_candidates)
+            })?
         }
-    }
+    };
 
-    let php_ini = resolved_php.parent().map(|p| p.join("php.ini")).filter(|p| p.exists());
+    // 3. php.ini location
+    let php_ini = resolved_php.parent().map(|p| clean_path(&p.join("php.ini"))).filter(|p| p.exists());
 
-    (resolved_php, resolved_root, php_ini)
+    // 4. AppData writable database storage directory
+    let app_data = std::env::var("APPDATA")
+        .map(|v| clean_path(&PathBuf::from(v)))
+        .unwrap_or_else(|_| exe_dir.join("storage"));
+    let sqlite_db_dir = app_data.join("YBT Management Software").join("storage").join("desktop");
+    let _ = std::fs::create_dir_all(&sqlite_db_dir);
+    let sqlite_db_path = sqlite_db_dir.join("ybt_local.sqlite");
+
+    Ok((resolved_php, resolved_root, php_ini, sqlite_db_path))
 }
 
-fn spawn_php_process(php_bin: &Path, root_dir: &Path, php_ini: Option<&Path>, port: u16) -> Option<Child> {
+fn spawn_php_process(
+    php_bin: &Path,
+    root_dir: &Path,
+    php_ini: Option<&Path>,
+    sqlite_db: &Path,
+    port: u16
+) -> Option<Child> {
     let mut cmd = Command::new(php_bin);
 
     if let Some(ini) = php_ini {
@@ -138,10 +173,14 @@ fn spawn_php_process(php_bin: &Path, root_dir: &Path, php_ini: Option<&Path>, po
     cmd.arg("-S").arg(format!("127.0.0.1:{}", port));
     cmd.arg("-t").arg(root_dir);
 
-    // CRITICAL: Set environment variables for PHP so APP_URL always matches the dynamic loopback port!
+    // CRITICAL: Set environment variables for PHP so APP_URL always matches the dynamic loopback port
     cmd.env("APP_URL", format!("http://127.0.0.1:{}", port));
     cmd.env("APP_PORT", port.to_string());
     cmd.env("APP_ENV", "desktop");
+    cmd.env("YBT_SQLITE_PATH", sqlite_db);
+    if let Some(parent) = sqlite_db.parent().and_then(|p| p.parent()) {
+        cmd.env("YBT_STORAGE_PATH", parent);
+    }
     cmd.current_dir(root_dir);
 
     #[cfg(windows)]
@@ -171,16 +210,37 @@ fn wait_for_server(port: u16, max_attempts: u32) -> bool {
 }
 
 fn main() {
-    let (php_bin, root_dir, php_ini) = resolve_paths();
+    let (php_bin, root_dir, php_ini, sqlite_db_path) = match resolve_paths() {
+        Ok(paths) => paths,
+        Err(err) => {
+            eprintln!("FATAL STARTUP ERROR: {}", err);
+            std::process::exit(1);
+        }
+    };
+
     let port = find_available_port();
     let server_url = format!("http://127.0.0.1:{}/dashboard.php", port);
+    let dashboard_path = root_dir.join("dashboard.php");
 
-    println!("Initializing YBT Management Software Native Desktop Shell...");
-    println!("Web Root: {:?}", root_dir);
-    println!("Portable PHP: {:?}", php_bin);
-    println!("Selected Port: {}", port);
+    println!("=======================================================");
+    println!(" YBT Management Software — Runtime Supervisor Diagnostics");
+    println!("=======================================================");
+    println!("1. PHP Executable:      {}", php_bin.display());
+    println!("2. PHP Configuration:   {}", php_ini.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "None".to_string()));
+    println!("3. Application Resource: {}", root_dir.display());
+    println!("4. Document Root:       {}", root_dir.display());
+    println!("5. Dashboard Absolute:  {}", dashboard_path.display());
+    println!("6. AppData Database:    {}", sqlite_db_path.display());
+    println!("7. Allocated Port:      {}", port);
+    println!("8. Dynamic Loopback URL: {}", server_url);
+    println!("=======================================================");
 
-    let child = spawn_php_process(&php_bin, &root_dir, php_ini.as_deref(), port);
+    if !dashboard_path.exists() {
+        eprintln!("CRITICAL ERROR: dashboard.php is missing at {}", dashboard_path.display());
+        std::process::exit(1);
+    }
+
+    let child = spawn_php_process(&php_bin, &root_dir, php_ini.as_deref(), &sqlite_db_path, port);
     if child.is_some() {
         let ready = wait_for_server(port, 40);
         if ready {
