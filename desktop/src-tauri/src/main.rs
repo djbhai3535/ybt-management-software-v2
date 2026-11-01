@@ -70,8 +70,11 @@ fn resolve_paths() -> (PathBuf, PathBuf, Option<PathBuf>) {
 
     // Candidate locations for php.exe
     let php_candidates = [
-        exe_dir.join("desktop/php/php.exe"),
         exe_dir.join("php/php.exe"),
+        exe_dir.join("resources/php/php.exe"),
+        exe_dir.join("resources/desktop/php/php.exe"),
+        exe_dir.join("desktop/php/php.exe"),
+        exe_dir.join("../php/php.exe"),
         exe_dir.join("../desktop/php/php.exe"),
         exe_dir.join("../../desktop/php/php.exe"),
         exe_dir.join("../../../desktop/php/php.exe"),
@@ -81,7 +84,7 @@ fn resolve_paths() -> (PathBuf, PathBuf, Option<PathBuf>) {
     let mut resolved_php = PathBuf::from(r"C:\CRM-Software\desktop\php\php.exe");
     for cand in &php_candidates {
         if cand.exists() {
-            resolved_php = cand.clone();
+            resolved_php = cand.canonicalize().unwrap_or_else(|_| cand.clone());
             break;
         }
     }
@@ -89,6 +92,7 @@ fn resolve_paths() -> (PathBuf, PathBuf, Option<PathBuf>) {
     // Candidate locations for project root (where dashboard.php resides)
     let root_candidates = [
         exe_dir.clone(),
+        exe_dir.join("resources"),
         exe_dir.join("../"),
         exe_dir.join("../../"),
         exe_dir.join("../../../"),
@@ -100,6 +104,22 @@ fn resolve_paths() -> (PathBuf, PathBuf, Option<PathBuf>) {
         if cand.join("dashboard.php").exists() {
             resolved_root = cand.canonicalize().unwrap_or_else(|_| cand.clone());
             break;
+        }
+    }
+
+    // If dashboard.php is found in resources subfolder
+    if !resolved_root.join("dashboard.php").exists() {
+        let res_cand = exe_dir.join("resources");
+        if res_cand.exists() {
+            if let Ok(entries) = std::fs::read_dir(&res_cand) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() && path.join("dashboard.php").exists() {
+                        resolved_root = path;
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -117,6 +137,12 @@ fn spawn_php_process(php_bin: &Path, root_dir: &Path, php_ini: Option<&Path>, po
 
     cmd.arg("-S").arg(format!("127.0.0.1:{}", port));
     cmd.arg("-t").arg(root_dir);
+
+    // CRITICAL: Set environment variables for PHP so APP_URL always matches the dynamic loopback port!
+    cmd.env("APP_URL", format!("http://127.0.0.1:{}", port));
+    cmd.env("APP_PORT", port.to_string());
+    cmd.env("APP_ENV", "desktop");
+    cmd.current_dir(root_dir);
 
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
@@ -156,7 +182,7 @@ fn main() {
 
     let child = spawn_php_process(&php_bin, &root_dir, php_ini.as_deref(), port);
     if child.is_some() {
-        let ready = wait_for_server(port, 25);
+        let ready = wait_for_server(port, 40);
         if ready {
             println!("Local PHP micro-engine verified operational at {}", server_url);
         } else {
@@ -166,6 +192,7 @@ fn main() {
 
     let shared_child = Arc::new(Mutex::new(child));
     let cleanup_child = Arc::clone(&shared_child);
+    let app_exit_child = Arc::clone(&shared_child);
 
     tauri::Builder::default()
         .manage(AppState {
@@ -188,6 +215,16 @@ fn main() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running YBT Management Software desktop shell");
+        .build(tauri::generate_context!())
+        .expect("error while building YBT Management Software desktop shell")
+        .run(move |_app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Ok(mut lock) = app_exit_child.lock() {
+                    if let Some(mut proc) = lock.take() {
+                        let _ = proc.kill();
+                        println!("Portable PHP process terminated cleanly on application exit.");
+                    }
+                }
+            }
+        });
 }

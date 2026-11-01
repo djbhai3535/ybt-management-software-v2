@@ -130,13 +130,51 @@
             flex: 1;
             position: relative;
             background: var(--bg);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .loading-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            background: var(--bg);
+            transition: opacity 0.3s ease;
+        }
+
+        .loader-spinner {
+            width: 44px;
+            height: 44px;
+            border: 3px solid rgba(14, 165, 233, 0.2);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loader-title {
+            font-weight: 700;
+            font-size: 1.15rem;
+            color: var(--text);
+        }
+
+        .loader-subtitle {
+            font-size: 0.875rem;
+            color: var(--text-muted);
         }
 
         iframe#crm-frame {
             width: 100%;
             height: 100%;
             border: none;
-            display: block;
+            display: none;
+            flex: 1;
         }
     </style>
 </head>
@@ -156,14 +194,19 @@
 
             <div class="sync-badge" id="sync-info">
                 <span id="sync-icon">⚡</span>
-                <span id="sync-text">All changes synced</span>
+                <span id="sync-text">Auto-sync active</span>
             </div>
         </div>
     </header>
 
     <main class="desktop-viewport">
-        <!-- Frame pointing to local micro-engine or cloud server -->
-        <iframe id="crm-frame" src="http://127.0.0.1:8088/dashboard.php"></iframe>
+        <div id="app-loading" class="loading-container">
+            <div class="loader-spinner"></div>
+            <div class="loader-title">YBT Management Software</div>
+            <div class="loader-subtitle" id="loader-status">Initializing local runtime supervisor...</div>
+        </div>
+        <!-- Frame pointing to dynamically allocated loopback micro-engine -->
+        <iframe id="crm-frame" src="about:blank"></iframe>
     </main>
 
     <script>
@@ -191,16 +234,53 @@
 
         // Resolve dynamic server URL from Tauri native backend
         async function initServerUrl() {
-            try {
-                if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
-                    const url = await window.__TAURI__.core.invoke('get_server_url');
-                    if (url) document.getElementById('crm-frame').src = url;
-                } else if (window.__TAURI__ && window.__TAURI__.invoke) {
-                    const url = await window.__TAURI__.invoke('get_server_url');
-                    if (url) document.getElementById('crm-frame').src = url;
+            const statusEl = document.getElementById('loader-status');
+            const frame = document.getElementById('crm-frame');
+            const loader = document.getElementById('app-loading');
+            let serverUrl = null;
+
+            for (let attempt = 1; attempt <= 30; attempt++) {
+                try {
+                    if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+                        serverUrl = await window.__TAURI__.core.invoke('get_server_url');
+                    } else if (window.__TAURI__ && window.__TAURI__.invoke) {
+                        serverUrl = await window.__TAURI__.invoke('get_server_url');
+                    }
+                } catch (e) {
+                    console.log(`IPC invoke attempt ${attempt} pending:`, e);
                 }
-            } catch (e) {
-                console.log('Using default server URL:', e);
+
+                if (serverUrl && (serverUrl.startsWith('http://127.0.0.1:') || serverUrl.startsWith('http://localhost:'))) {
+                    break;
+                }
+                await new Promise(r => setTimeout(r, 200));
+            }
+
+            // Fallback from query params if any
+            if (!serverUrl) {
+                const params = new URLSearchParams(window.location.search);
+                const port = params.get('port');
+                if (port) {
+                    serverUrl = `http://127.0.0.1:${port}/dashboard.php`;
+                }
+            }
+
+            if (serverUrl) {
+                if (statusEl) statusEl.textContent = 'Connecting to desktop runtime...';
+                frame.src = serverUrl;
+                frame.onload = () => {
+                    loader.style.display = 'none';
+                    frame.style.display = 'block';
+                };
+                // Fallback display timer in case iframe load event fires before listener
+                setTimeout(() => {
+                    loader.style.display = 'none';
+                    frame.style.display = 'block';
+                }, 3000);
+            } else {
+                if (statusEl) {
+                    statusEl.innerHTML = '<span style="color:var(--danger)">Runtime failed to respond. Please restart application.</span>';
+                }
             }
         }
         initServerUrl();

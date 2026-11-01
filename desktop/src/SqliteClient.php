@@ -13,6 +13,10 @@ class SqliteClient {
             $this->dbPath = $customPath;
         } else {
             $storageDir = dirname(__DIR__, 2) . '/storage/desktop';
+            // If running inside Program Files without write permissions, fallback to user AppData
+            if (!@is_writable(dirname(__DIR__, 2)) && getenv('APPDATA')) {
+                $storageDir = str_replace('\\', '/', getenv('APPDATA')) . '/YBT Management Software/storage/desktop';
+            }
             if (!is_dir($storageDir)) {
                 @mkdir($storageDir, 0755, true);
             }

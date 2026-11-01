@@ -13,7 +13,21 @@ return [
     // Application
     'app_name'    => 'YBT Management Software',
     'app_version' => '1.0.0',
-    'app_url'     => getenv('APP_URL') ?: 'http://localhost/YBT%20Management%20Software',
+    'app_url'     => (function() {
+        if ($env = getenv('APP_URL')) {
+            return rtrim($env, '/');
+        }
+        if (isset($_SERVER['HTTP_HOST'])) {
+            $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+            $host = $_SERVER['HTTP_HOST'];
+            $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+            if ($scriptDir !== '/' && $scriptDir !== '.' && !empty($scriptDir)) {
+                return $scheme . '://' . $host . $scriptDir;
+            }
+            return $scheme . '://' . $host;
+        }
+        return 'http://localhost/YBT%20Management%20Software';
+    })(),
     'environment' => getenv('APP_ENV') ?: 'development', // development | production
     'debug'       => getenv('APP_DEBUG') !== false ? filter_var(getenv('APP_DEBUG'), FILTER_VALIDATE_BOOLEAN) : true,
     'timezone'    => 'Asia/Kolkata',
