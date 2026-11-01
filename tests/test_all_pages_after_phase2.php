@@ -23,6 +23,7 @@ $pages = [
     'dashboard.php',
     'customers.php',
     'customer-view.php',
+    'customer-ledger-print.php',
     'products.php',
     'invoices.php',
     'invoice-create.php',

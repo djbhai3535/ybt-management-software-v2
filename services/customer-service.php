@@ -1,9 +1,13 @@
 <?php
+declare(strict_types=1);
+
 /**
  * YBT Management Software — Customer Service
  * Handles customer CRUD, ledger balance calculations, and history
  * Strictly scoped by TenantContext to prevent cross-tenant leakage.
  */
+
+require_once __DIR__ . '/khata-service.php';
 
 class CustomerService {
     /**
@@ -27,7 +31,8 @@ class CustomerService {
         }
 
         if (!empty($filters['city'])) {
-            $where[] = "c.billing_city = ?";
+            $where[] = "(c.billing_city = ? OR c.city = ?)";
+            $params[] = $filters['city'];
             $params[] = $filters['city'];
         }
 
@@ -37,13 +42,14 @@ class CustomerService {
         $countRow = Database::fetch("SELECT COUNT(*) as cnt FROM customers c WHERE {$whereClause}", $params);
         $total = $countRow['cnt'] ?? 0;
 
-        // Fetch paginated with strictly tenant-scoped invoice subqueries
+        // Fetch paginated with strictly tenant-scoped invoice subqueries and real-time khata balance
         $offset = ($page - 1) * $perPage;
         $sql = "SELECT c.*, 
                 (SELECT COUNT(*) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id) as invoice_count,
-                (SELECT COALESCE(SUM(grand_total), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void') as total_billed,
-                (SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void') as total_paid,
-                (SELECT COALESCE(SUM(outstanding), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status IN ('sent', 'partial', 'overdue')) as total_outstanding
+                (SELECT COALESCE(SUM(grand_total), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void' AND status != 'cancelled') as total_billed,
+                (SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void' AND status != 'cancelled') as total_paid,
+                (SELECT COALESCE(SUM(outstanding), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status IN ('sent', 'partial', 'overdue', 'unpaid')) as total_outstanding,
+                COALESCE(c.current_balance, 0) as khata_balance
                 FROM customers c 
                 WHERE {$whereClause} 
                 ORDER BY c.created_at DESC 
@@ -61,7 +67,7 @@ class CustomerService {
     }
 
     /**
-     * Get single customer with detailed stats and invoices
+     * Get single customer with detailed stats, invoices, and Khata ledger
      */
     public static function getById(int $customerId, int $businessId): ?array {
         TenantContext::assertMatches($businessId);
@@ -69,9 +75,10 @@ class CustomerService {
         $customer = Database::fetch(
             "SELECT c.*,
              (SELECT COUNT(*) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id) as invoice_count,
-             (SELECT COALESCE(SUM(grand_total), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void') as total_billed,
-             (SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void') as total_paid,
-             (SELECT COALESCE(SUM(outstanding), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status IN ('sent', 'partial', 'overdue')) as total_outstanding
+             (SELECT COALESCE(SUM(grand_total), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void' AND status != 'cancelled') as total_billed,
+             (SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void' AND status != 'cancelled') as total_paid,
+             (SELECT COALESCE(SUM(outstanding), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status IN ('sent', 'partial', 'overdue', 'unpaid')) as total_outstanding,
+             COALESCE(c.current_balance, 0) as khata_balance
              FROM customers c 
              WHERE c.id = ? AND c.business_id = ?",
             [$customerId, $businessId]
@@ -81,7 +88,7 @@ class CustomerService {
 
         // Invoices
         $customer['invoices'] = Database::fetchAll(
-            "SELECT * FROM invoices WHERE customer_id = ? AND business_id = ? ORDER BY invoice_date DESC LIMIT 10",
+            "SELECT * FROM invoices WHERE customer_id = ? AND business_id = ? ORDER BY invoice_date DESC, id DESC LIMIT 20",
             [$customerId, $businessId]
         );
 
@@ -98,41 +105,73 @@ class CustomerService {
              LEFT JOIN payment_allocations pa ON p.id = pa.payment_id
              LEFT JOIN invoices i ON pa.invoice_id = i.id
              WHERE p.customer_id = ? AND p.business_id = ? 
-             ORDER BY p.payment_date DESC LIMIT 10",
+             ORDER BY p.payment_date DESC, p.id DESC LIMIT 20",
             [$customerId, $businessId]
         );
+
+        // Customer Khata Statement
+        $customer['khata'] = KhataService::getStatement($customerId, $businessId);
 
         return $customer;
     }
 
     /**
-     * Create customer
+     * Create customer with optional opening balance
      */
     public static function create(int $businessId, array $data, int $userId): int {
         TenantContext::assertMatches($businessId);
 
-        return Database::insert('customers', [
+        $opBal = max(0.0, (float)($data['opening_balance'] ?? 0));
+        $rawType = (string)($data['opening_balance_type'] ?? 'debit');
+        $opType = in_array(strtolower($rawType), ['debit', 'credit'], true) ? strtolower($rawType) : 'debit';
+        $currBal = ($opType === 'credit') ? -$opBal : $opBal;
+
+        $addr = trim($data['billing_address'] ?? $data['billing_address_line1'] ?? $data['address'] ?? '');
+        $city = trim($data['billing_city'] ?? $data['city'] ?? '');
+        $state = trim($data['billing_state'] ?? $data['state'] ?? '');
+        $pin = trim($data['billing_pincode'] ?? $data['billing_postal_code'] ?? $data['pincode'] ?? '');
+
+        $customerId = Database::insert('customers', [
+            'uuid' => generateUuidV4(),
             'business_id' => $businessId,
             'name' => trim($data['name']),
             'company_name' => trim($data['company_name'] ?? ''),
-            'contact_person' => trim($data['contact_person'] ?? ''),
             'email' => trim($data['email'] ?? ''),
             'phone' => trim($data['phone'] ?? ''),
+            'address' => $addr,
+            'city' => $city,
+            'state' => $state,
+            'pincode' => $pin,
             'gstin' => strtoupper(trim($data['gstin'] ?? '')),
-            'pan' => strtoupper(trim($data['pan'] ?? '')),
-            'billing_address_line1' => trim($data['billing_address_line1'] ?? ''),
-            'billing_address_line2' => trim($data['billing_address_line2'] ?? ''),
-            'billing_city' => trim($data['billing_city'] ?? ''),
-            'billing_state' => trim($data['billing_state'] ?? ''),
-            'billing_postal_code' => trim($data['billing_postal_code'] ?? ''),
-            'billing_country' => trim($data['billing_country'] ?? 'India'),
-            'shipping_address_line1' => trim($data['shipping_address_line1'] ?? ''),
-            'shipping_city' => trim($data['shipping_city'] ?? ''),
-            'shipping_state' => trim($data['shipping_state'] ?? ''),
+            'billing_address' => $addr,
+            'billing_city' => $city,
+            'billing_state' => $state,
+            'billing_pincode' => $pin,
+            'shipping_address' => trim($data['shipping_address'] ?? $data['shipping_address_line1'] ?? $addr),
+            'shipping_city' => trim($data['shipping_city'] ?? $city),
+            'shipping_state' => trim($data['shipping_state'] ?? $state),
+            'shipping_pincode' => trim($data['shipping_pincode'] ?? $pin),
             'notes' => trim($data['notes'] ?? ''),
+            'opening_balance' => $opBal,
+            'opening_balance_type' => $opType,
+            'current_balance' => $currBal,
             'status' => $data['status'] ?? 'active',
-            'created_by' => $userId
+            'created_at' => date('Y-m-d H:i:s'),
+            'updated_at' => date('Y-m-d H:i:s')
         ]);
+
+        if ($opBal > 0) {
+            KhataService::setOpeningBalance(
+                $customerId,
+                $businessId,
+                $opBal,
+                $opType,
+                trim($data['opening_balance_notes'] ?? 'Initial opening balance recorded at customer registration'),
+                $userId
+            );
+        }
+
+        return $customerId;
     }
 
     /**
@@ -141,23 +180,31 @@ class CustomerService {
     public static function update(int $customerId, int $businessId, array $data): bool {
         TenantContext::assertMatches($businessId);
 
-        return Database::update('customers', [
+        $addr = trim($data['billing_address'] ?? $data['billing_address_line1'] ?? $data['address'] ?? '');
+        $city = trim($data['billing_city'] ?? $data['city'] ?? '');
+        $state = trim($data['billing_state'] ?? $data['state'] ?? '');
+        $pin = trim($data['billing_pincode'] ?? $data['billing_postal_code'] ?? $data['pincode'] ?? '');
+
+        $updateData = [
             'name' => trim($data['name']),
             'company_name' => trim($data['company_name'] ?? ''),
-            'contact_person' => trim($data['contact_person'] ?? ''),
             'email' => trim($data['email'] ?? ''),
             'phone' => trim($data['phone'] ?? ''),
+            'address' => $addr,
+            'city' => $city,
+            'state' => $state,
+            'pincode' => $pin,
             'gstin' => strtoupper(trim($data['gstin'] ?? '')),
-            'pan' => strtoupper(trim($data['pan'] ?? '')),
-            'billing_address_line1' => trim($data['billing_address_line1'] ?? ''),
-            'billing_address_line2' => trim($data['billing_address_line2'] ?? ''),
-            'billing_city' => trim($data['billing_city'] ?? ''),
-            'billing_state' => trim($data['billing_state'] ?? ''),
-            'billing_postal_code' => trim($data['billing_postal_code'] ?? ''),
-            'billing_country' => trim($data['billing_country'] ?? 'India'),
+            'billing_address' => $addr,
+            'billing_city' => $city,
+            'billing_state' => $state,
+            'billing_pincode' => $pin,
             'notes' => trim($data['notes'] ?? ''),
-            'status' => $data['status'] ?? 'active'
-        ], 'id = ? AND business_id = ?', [$customerId, $businessId]) > 0;
+            'status' => $data['status'] ?? 'active',
+            'updated_at' => date('Y-m-d H:i:s')
+        ];
+
+        return Database::update('customers', $updateData, 'id = ? AND business_id = ?', [$customerId, $businessId]) > 0;
     }
 
     /**
@@ -166,7 +213,6 @@ class CustomerService {
     public static function delete(int $customerId, int $businessId): bool {
         TenantContext::assertMatches($businessId);
 
-        // Soft delete / archive
-        return Database::update('customers', ['status' => 'inactive'], 'id = ? AND business_id = ?', [$customerId, $businessId]) > 0;
+        return Database::update('customers', ['status' => 'inactive', 'updated_at' => date('Y-m-d H:i:s')], 'id = ? AND business_id = ?', [$customerId, $businessId]) > 0;
     }
 }

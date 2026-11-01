@@ -80,7 +80,14 @@ if (!is_resource($serverProc)) {
 }
 
 // Wait for server to bind
-usleep(600000); // 600ms
+for ($w = 0; $w < 30; $w++) {
+    $fp = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.1);
+    if ($fp) {
+        fclose($fp);
+        break;
+    }
+    usleep(100000); // 100ms
+}
 
 $testsPassed = 0;
 $totalTests = 8;

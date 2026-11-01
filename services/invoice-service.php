@@ -190,6 +190,9 @@ class InvoiceService {
             if ($status !== 'draft') {
                 require_once __DIR__ . '/stock-service.php';
                 StockService::deductForInvoice($businessId, $invoiceId, $userId);
+                // Stage 3: Customer Khata / Ledger Debit Entry (You Gave / آپ نے دیے)
+                require_once __DIR__ . '/khata-service.php';
+                KhataService::recordInvoiceDebit($businessId, $invoiceId, $userId);
             }
 
             ActivityLog::log($businessId, $userId, 'invoice_created', 'invoice', $invoiceId, "Created invoice {$invoiceNumber} for ₹" . number_format($grandTotal, 2));
@@ -208,6 +211,9 @@ class InvoiceService {
     public static function cancel(int $invoiceId, int $businessId, int $userId): array {
         require_once __DIR__ . '/stock-service.php';
         $res = StockService::restoreForCancelledInvoice($businessId, $invoiceId, $userId);
+        // Stage 3: Customer Khata / Ledger Reversal (Reverses You Gave effect exactly once)
+        require_once __DIR__ . '/khata-service.php';
+        KhataService::reverseInvoice($businessId, $invoiceId, $userId);
         ActivityLog::log($businessId, $userId, 'invoice_cancelled', 'invoice', $invoiceId, "Cancelled invoice #{$invoiceId} and restored inventory");
         return $res;
     }

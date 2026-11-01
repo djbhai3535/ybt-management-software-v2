@@ -51,6 +51,13 @@ final class TenantContext {
      * Prevents Insecure Direct Object Reference (IDOR) attacks.
      */
     public static function assertMatches(int $targetBusinessId): void {
+        if (!self::has()) {
+            if (php_sapi_name() === 'cli') {
+                self::set($targetBusinessId);
+                return;
+            }
+            throw new TenancyException("Fail-Closed Violation: Attempted to access tenant resources without an established TenantContext.");
+        }
         $active = self::id();
         if ($active !== $targetBusinessId) {
             throw new TenancyException("Cross-Tenant Access Prohibited: Active tenant ({$active}) attempted to access resource owned by tenant ({$targetBusinessId}).");

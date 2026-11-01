@@ -1,16 +1,23 @@
 <?php
+declare(strict_types=1);
+
 /**
  * YBT Management Software — Payments Directory & Recording
+ * Integrated with Customer Khata Ledger (You Gave / You Got)
  */
 
 require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/services/payment-service.php';
+require_once __DIR__ . '/services/khata-service.php';
 
 Auth::requireLogin();
 Permissions::require('payments.view');
 
 $businessId = Auth::businessId();
 $userId = Auth::id();
+$business = Database::fetch("SELECT * FROM businesses WHERE id = ?", [$businessId]);
+$currency = $business['default_currency'] ?? 'PKR';
+$paymentMethods = KhataService::getPaymentMethods();
 
 // Handle Record Payment POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'record_payment') {
@@ -28,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         } else {
             try {
                 $payId = PaymentService::record($businessId, $_POST, $userId);
-                Flash::success('Payment recorded successfully.');
+                Flash::success('Payment recorded successfully and updated Customer Khata.');
                 header('Location: ' . url('payments.php'));
                 exit;
             } catch (Exception $e) {
@@ -39,10 +46,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 // Fetch active customers and unpaid invoices for recording
-$customers = Database::fetchAll("SELECT id, name, company_name FROM customers WHERE business_id = ? ORDER BY name ASC", [$businessId]);
+$customers = Database::fetchAll("SELECT id, name, company_name, current_balance FROM customers WHERE business_id = ? ORDER BY name ASC", [$businessId]);
 $unpaidInvoices = Database::fetchAll(
     "SELECT id, customer_id, invoice_number, outstanding FROM invoices 
-     WHERE business_id = ? AND status IN ('sent', 'partial', 'overdue') AND outstanding > 0 
+     WHERE business_id = ? AND status IN ('sent', 'partial', 'overdue', 'unpaid') AND outstanding > 0 
      ORDER BY invoice_date DESC",
     [$businessId]
 );
@@ -55,23 +62,23 @@ $payments = Database::fetchAll(
      LEFT JOIN payment_allocations pa ON p.id = pa.payment_id
      LEFT JOIN invoices i ON pa.invoice_id = i.id
      WHERE p.business_id = ?
-     ORDER BY p.payment_date DESC",
+     ORDER BY p.payment_date DESC, p.id DESC",
     [$businessId]
 );
 
-$pageTitle = 'Payments & Receipts';
+$pageTitle = 'Payments & Receipts (وصولیاں)';
 require YBT_ROOT . '/includes/header.php';
 ?>
 
 <div class="page-header d-flex justify-between align-center mb-4">
     <div>
-        <h1 class="page-title">Payments & Receipts</h1>
-        <p class="page-subtitle">Track collections, bank transactions, UPI remittances, and cash inflows</p>
+        <h1 class="page-title">Payments & Receipts (وصولیاں)</h1>
+        <p class="page-subtitle">Track collections, bank transfers, mobile wallets (JazzCash/Easypaisa), Raast, and cash receipts</p>
     </div>
     <div class="page-header-actions">
         <?php if (Permissions::has('payments.record')): ?>
         <button type="button" class="btn btn-primary" data-modal-target="record-payment-modal">
-            <i class="ti ti-cash mr-1"></i> Record Payment
+            <i class="ti ti-cash mr-1"></i> Record Payment (رقم وصول کریں)
         </button>
         <?php endif; ?>
     </div>
@@ -88,11 +95,11 @@ require YBT_ROOT . '/includes/header.php';
         <?php if (empty($payments)): ?>
             <div class="empty-state p-5 text-center">
                 <i class="ti ti-cash text-4xl text-muted mb-2"></i>
-                <h3>No Payments Recorded</h3>
-                <p class="text-muted text-sm mb-3">Record incoming payments against client invoices.</p>
+                <h3>No Payments Recorded Yet</h3>
+                <p class="text-muted text-sm mb-3">Incoming payments will appear here with instant customer ledger updates.</p>
                 <?php if (Permissions::has('payments.record')): ?>
                 <button type="button" class="btn btn-primary btn-sm" data-modal-target="record-payment-modal">
-                    <i class="ti ti-plus mr-1"></i> Record First Payment
+                    <i class="ti ti-plus mr-1"></i> Record Your First Payment
                 </button>
                 <?php endif; ?>
             </div>
@@ -101,22 +108,24 @@ require YBT_ROOT . '/includes/header.php';
                 <table class="data-table" id="payments-table">
                     <thead>
                         <tr>
-                            <th>Payment #</th>
-                            <th>Customer</th>
+                            <th>Receipt #</th>
+                            <th>Customer Name</th>
                             <th>Allocated Invoice</th>
                             <th>Date</th>
-                            <th>Method</th>
-                            <th>Reference / UTR</th>
-                            <th class="text-right">Amount Received</th>
+                            <th>Method (طریقہ)</th>
+                            <th>Reference / TID</th>
+                            <th class="text-right">Amount Received (وصولی)</th>
                             <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($payments as $p): ?>
                         <tr>
-                            <td><strong><?= e($p['payment_number']) ?></strong></td>
+                            <td><strong><?= e($p['payment_number'] ?? 'PAY-#' . $p['id']) ?></strong></td>
                             <td>
-                                <strong><?= e($p['customer_name']) ?></strong>
+                                <a href="<?= url('customer-view.php?id=' . $p['customer_id'] . '&tab=khata') ?>" class="font-bold text-primary">
+                                    <?= e($p['customer_name']) ?>
+                                </a>
                                 <?php if (!empty($p['company_name'])): ?>
                                     <div class="text-xs text-muted"><?= e($p['company_name']) ?></div>
                                 <?php endif; ?>
@@ -127,14 +136,23 @@ require YBT_ROOT . '/includes/header.php';
                                         <?= e($p['invoice_number']) ?>
                                     </a>
                                 <?php else: ?>
-                                    <span class="text-muted text-xs">Unallocated</span>
+                                    <span class="badge badge-subtle">Advance / Unallocated</span>
                                 <?php endif; ?>
                             </td>
                             <td><?= formatDate($p['payment_date']) ?></td>
-                            <td><span class="badge badge-subtle"><?= ucfirst(str_replace('_', ' ', $p['method'])) ?></span></td>
-                            <td><code><?= e($p['reference'] ?: '—') ?></code></td>
+                            <td>
+                                <?php 
+                                $meth = $p['payment_method'] ?? $p['method'] ?? 'cash';
+                                $mMeta = $paymentMethods[$meth] ?? null;
+                                ?>
+                                <span class="badge badge-subtle">
+                                    <i class="<?= e($mMeta['icon'] ?? 'ti ti-cash') ?> mr-1"></i>
+                                    <?= e($mMeta['label'] ?? ucfirst($meth)) ?>
+                                </span>
+                            </td>
+                            <td><code><?= e($p['reference'] ?? $p['transaction_reference'] ?: '—') ?></code></td>
                             <td class="text-right font-bold text-success">
-                                <?= formatCurrency($p['amount']) ?>
+                                <?= formatCurrency((float)$p['amount']) ?>
                             </td>
                             <td>
                                 <span class="badge badge-success">Completed</span>
@@ -152,12 +170,13 @@ require YBT_ROOT . '/includes/header.php';
 <div class="modal-backdrop <?= (isset($_GET['action']) && $_GET['action'] === 'record') ? 'active' : '' ?>" id="record-payment-modal">
     <div class="modal-card">
         <div class="modal-header">
-            <h3 class="modal-title"><i class="ti ti-cash mr-1 text-success"></i> Record Incoming Payment</h3>
+            <h3 class="modal-title"><i class="ti ti-cash mr-1 text-success"></i> Record Incoming Payment (رقم وصول کریں)</h3>
             <button type="button" class="modal-close" data-modal-close>&times;</button>
         </div>
         <form action="<?= url('payments.php') ?>" method="POST">
             <?= Csrf::field() ?>
             <input type="hidden" name="action" value="record_payment">
+            <input type="hidden" name="idempotency_key" value="pay_modal_<?= $businessId ?>_<?= time() ?>_<?= rand(100, 999) ?>">
 
             <div class="modal-body">
                 <div class="form-group mb-3">
@@ -166,7 +185,12 @@ require YBT_ROOT . '/includes/header.php';
                         <option value="">— Select Customer —</option>
                         <?php foreach ($customers as $c): ?>
                             <option value="<?= $c['id'] ?>">
-                                <?= e($c['name']) ?> <?= !empty($c['company_name']) ? '— ' . e($c['company_name']) : '' ?>
+                                <?= e($c['name']) ?> 
+                                <?php if (!empty($c['current_balance']) && (float)$c['current_balance'] > 0): ?>
+                                    (Dues: <?= formatCurrency((float)$c['current_balance']) ?>)
+                                <?php elseif (!empty($c['current_balance']) && (float)$c['current_balance'] < 0): ?>
+                                    (Advance: <?= formatCurrency(abs((float)$c['current_balance'])) ?>)
+                                <?php endif; ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
@@ -175,10 +199,10 @@ require YBT_ROOT . '/includes/header.php';
                 <div class="form-group mb-3">
                     <label class="form-label">Apply to Invoice (Optional)</label>
                     <select name="invoice_id" class="form-select">
-                        <option value="">— Unallocated / Account Credit —</option>
+                        <option value="">— Auto-Apply (FIFO Across Unpaid Invoices or Advance) —</option>
                         <?php foreach ($unpaidInvoices as $u): ?>
                             <option value="<?= $u['id'] ?>" <?= ((int)($_GET['invoice_id'] ?? 0) === $u['id']) ? 'selected' : '' ?>>
-                                <?= e($u['invoice_number']) ?> (Due: <?= formatCurrency($u['outstanding']) ?>)
+                                <?= e($u['invoice_number']) ?> (Due: <?= formatCurrency((float)$u['outstanding']) ?>)
                             </option>
                         <?php endforeach; ?>
                     </select>
@@ -186,8 +210,8 @@ require YBT_ROOT . '/includes/header.php';
 
                 <div class="grid grid-cols-2 gap-3 mb-3">
                     <div class="form-group">
-                        <label class="form-label required">Amount Received (₹)</label>
-                        <input type="number" name="amount" class="form-input" placeholder="10000" min="0.01" step="0.01" required>
+                        <label class="form-label required">Amount Received (<?= e($currency) ?>)</label>
+                        <input type="number" name="amount" class="form-input" placeholder="5000" min="0.01" step="0.01" required>
                     </div>
                     <div class="form-group">
                         <label class="form-label required">Payment Date</label>
@@ -197,30 +221,30 @@ require YBT_ROOT . '/includes/header.php';
 
                 <div class="grid grid-cols-2 gap-3 mb-3">
                     <div class="form-group">
-                        <label class="form-label">Payment Method</label>
-                        <select name="method" class="form-select">
-                            <option value="bank_transfer" selected>Bank Transfer (NEFT/RTGS/IMPS)</option>
-                            <option value="upi">UPI (GPay / PhonePe / Paytm)</option>
-                            <option value="cheque">Cheque</option>
-                            <option value="cash">Cash</option>
-                            <option value="credit_card">Credit / Debit Card</option>
+                        <label class="form-label required">Payment Method (ادائیگی کا ذریعہ)</label>
+                        <select name="method" class="form-select" required>
+                            <?php foreach ($paymentMethods as $code => $m): ?>
+                                <option value="<?= e($code) ?>" <?= $code === 'cash' ? 'selected' : '' ?>>
+                                    <?= e($m['label']) ?> (<?= e($m['label_ur']) ?>)
+                                </option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Reference # / UTR / Cheque No.</label>
-                        <input type="text" name="reference" class="form-input" placeholder="e.g. UTR-99201923">
+                        <label class="form-label">Reference / TID #</label>
+                        <input type="text" name="reference" class="form-input" placeholder="e.g. JazzCash TID, Bank UTR">
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Notes / Remarks</label>
-                    <textarea name="notes" class="form-input" rows="2" placeholder="e.g. Received via HDFC current account"></textarea>
+                    <textarea name="notes" class="form-input" rows="2" placeholder="e.g. Handed cash in shop, or received via Raast transfer"></textarea>
                 </div>
             </div>
 
             <div class="modal-footer d-flex justify-end gap-2">
                 <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
-                <button type="submit" class="btn btn-success"><i class="ti ti-check mr-1"></i> Save Payment</button>
+                <button type="submit" class="btn btn-success"><i class="ti ti-check mr-1"></i> Save Payment & Update Khata</button>
             </div>
         </form>
     </div>
