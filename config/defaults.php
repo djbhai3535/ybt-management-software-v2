@@ -114,6 +114,45 @@ return [
         'GBP' => ['name' => 'British Pound',   'symbol' => '£',   'code' => 'GBP', 'decimals' => 2],
     ],
 
+    // Business Types for Multi-Business MIS Platform
+    'business_types' => [
+        'mobile_electronics' => [
+            'id' => 'mobile_electronics',
+            'name' => 'Mobile and electronics shops',
+            'label' => 'Mobile & Electronics Store',
+            'icon' => 'ti-device-mobile',
+            'description' => 'Mobile devices, accessories, spare parts and repair services'
+        ],
+        'medical_pharmacy' => [
+            'id' => 'medical_pharmacy',
+            'name' => 'Medical stores and pharmacies',
+            'label' => 'Medical Store & Pharmacy',
+            'icon' => 'ti-pill',
+            'description' => 'Medicines, pharmaceuticals, batches, formulas, and healthcare goods'
+        ],
+        'general_store' => [
+            'id' => 'general_store',
+            'name' => 'General stores',
+            'label' => 'General & Grocery Store',
+            'icon' => 'ti-shopping-cart',
+            'description' => 'FMCG goods, groceries, household items and daily retail products'
+        ],
+        'wholesale_retail' => [
+            'id' => 'wholesale_retail',
+            'name' => 'Wholesale and retail businesses',
+            'label' => 'Wholesale & Retail Business',
+            'icon' => 'ti-truck-delivery',
+            'description' => 'Wholesale trading, distribution, cartons, and bulk commercial supply'
+        ],
+        'other_business' => [
+            'id' => 'other_business',
+            'name' => 'Other configurable businesses',
+            'label' => 'Other Configurable Business',
+            'icon' => 'ti-building-store',
+            'description' => 'Custom trade, service providers, hardware, workshops, and commercial sales'
+        ]
+    ],
+
     // Supported Countries & Regional Tax/Banking Presets
     'supported_countries' => [
         'Pakistan' => [

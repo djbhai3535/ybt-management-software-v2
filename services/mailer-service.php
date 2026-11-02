@@ -7,6 +7,50 @@
 
 class MailerService {
     /**
+     * In-memory only last dispatched OTP for automated test verification.
+     * Strictly NOT written to logs or disk.
+     */
+    public static ?string $lastDispatchedOtp = null;
+
+    /**
+     * Send email verification 6-digit OTP code to newly registered user
+     */
+    public static function sendVerificationOtp(string $email, string $name, string $otp): bool {
+        self::$lastDispatchedOtp = $otp;
+        $subject = "Your Verification Code: {$otp} — " . APP_NAME;
+
+        $body = "Hello " . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . ",\n\n"
+              . "Thank you for registering on " . APP_NAME . ".\n\n"
+              . "Your 6-digit email verification code is:\n\n"
+              . "   " . $otp . "\n\n"
+              . "This verification code will expire in 15 minutes.\n"
+              . "Enter this code on the verification screen to activate your business account.\n\n"
+              . "If you did not request this verification code, please ignore this email.\n\n"
+              . "Regards,\n" . APP_NAME . " Security Team";
+
+        return self::send($email, $name, $subject, $body);
+    }
+
+    /**
+     * Send password reset 6-digit OTP code
+     */
+    public static function sendPasswordResetOtp(string $email, string $name, string $otp): bool {
+        self::$lastDispatchedOtp = $otp;
+        $subject = "Your Password Reset Code: {$otp} — " . APP_NAME;
+
+        $body = "Hello " . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . ",\n\n"
+              . "We received a request to reset your password on " . APP_NAME . ".\n\n"
+              . "Your 6-digit password reset code is:\n\n"
+              . "   " . $otp . "\n\n"
+              . "This reset code will expire in 15 minutes.\n"
+              . "Enter this code on the password reset screen along with your new password.\n\n"
+              . "If you did not request a password reset, no action is needed.\n\n"
+              . "Regards,\n" . APP_NAME . " Security Team";
+
+        return self::send($email, $name, $subject, $body);
+    }
+
+    /**
      * Send email verification link to newly registered shopkeeper
      */
     public static function sendVerificationEmail(string $email, string $name, string $rawToken): bool {
@@ -81,14 +125,19 @@ class MailerService {
             @mkdir($logDir, 0755, true);
         }
 
+        // Security Invariant: Strictly redact 6-digit OTP codes and passwords from logs
+        $safeSubject = preg_replace('/\b\d{6}\b/', '******', $subject);
+        $safeBody = preg_replace('/\b\d{6}\b/', '******', $body);
+        $safeBody = preg_replace('/(password[:=]\s*)[^\s]+/i', '$1[REDACTED]', $safeBody);
+
         $logEntry = sprintf(
             "[%s] DISPATCHED TO: %s <%s> | SUBJECT: %s\n%s\n%s\n",
             date('Y-m-d H:i:s'),
             $toName,
             $toEmail,
-            $subject,
+            $safeSubject,
             str_repeat('-', 60),
-            $body
+            $safeBody
         );
 
         file_put_contents($logDir . '/mail.log', $logEntry, FILE_APPEND | LOCK_EX);

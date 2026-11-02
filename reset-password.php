@@ -1,7 +1,8 @@
 <?php
 /**
  * YBT Management Software — Reset Password Processor
- * Validates SHA-256 hashed token, enforces expiration, updates password and revokes existing tokens.
+ * Validates 6-digit numeric OTP code with SHA-256 hash, enforces 15-minute expiration,
+ * updates user password, and revokes tokens.
  */
 
 require_once __DIR__ . '/includes/bootstrap.php';
@@ -11,96 +12,116 @@ if (Auth::check()) {
     exit;
 }
 
-$token = trim($_GET['token'] ?? $_POST['token'] ?? '');
 $email = strtolower(trim($_GET['email'] ?? $_POST['email'] ?? ''));
-
-$tokenValid = false;
-$resetRecord = null;
+$otp = trim($_GET['otp'] ?? $_GET['token'] ?? $_POST['otp'] ?? $_POST['token'] ?? '');
 $error = '';
-$tokenHash = '';
+$success = false;
 
-if ($token === '') {
-    $error = 'Missing password reset token.';
-} else {
-    $tokenHash = hash('sha256', $token);
-    $resetRecord = Database::fetch(
-        "SELECT pr.*, u.name, u.business_id, u.is_active 
-         FROM password_resets pr
-         JOIN users u ON pr.user_id = u.id
-         WHERE pr.token_hash = ? AND pr.used_at IS NULL
-         LIMIT 1",
-        [$tokenHash]
-    );
-
-    if (!$resetRecord) {
-        $error = 'This password reset link is invalid or has already been used.';
-    } elseif (strtotime($resetRecord['expires_at']) < time()) {
-        $error = 'This password reset link has expired. Please request a new one.';
-    } elseif (!$resetRecord['is_active']) {
-        $error = 'The associated account has been deactivated.';
-    } else {
-        $tokenValid = true;
-    }
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tokenValid) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
         $error = 'Invalid security token. Please refresh and try again.';
     } else {
         $password = $_POST['password'] ?? '';
         $confirmPassword = $_POST['confirm_password'] ?? '';
 
-        if (empty($password)) {
+        if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $error = 'Please enter a valid email address.';
+        } elseif (empty($otp)) {
+            $error = 'Please enter your 6-digit reset code.';
+        } elseif (empty($password)) {
             $error = 'Please enter a new password.';
         } elseif (strlen($password) < 8) {
             $error = 'Password must be at least 8 characters long.';
         } elseif ($password !== $confirmPassword) {
             $error = 'Password and confirmation password do not match.';
         } else {
-            $db = Database::getInstance();
-            $db->beginTransaction();
+            $tokenHash = hash('sha256', $otp);
 
-            try {
-                // 1. Mark token as used
-                Database::query("UPDATE password_resets SET used_at = NOW() WHERE id = ?", [$resetRecord['id']]);
+            $resetRecord = Database::fetch(
+                "SELECT pr.*, u.id as user_id, u.name, u.business_id, u.is_active 
+                 FROM password_resets pr
+                 JOIN users u ON pr.user_id = u.id
+                 WHERE pr.email = ? AND pr.token_hash = ? AND pr.used_at IS NULL
+                 ORDER BY pr.id DESC LIMIT 1",
+                [$email, $tokenHash]
+            );
 
-                // 2. Update user's password
-                $newHash = password_hash($password, PASSWORD_DEFAULT);
-                Database::query(
-                    "UPDATE users SET password = ?, failed_login_count = 0, locked_until = NULL WHERE id = ?",
-                    [$newHash, $resetRecord['user_id']]
+            if (!$resetRecord) {
+                $alreadyUsed = Database::fetch(
+                    "SELECT id FROM password_resets WHERE email = ? AND token_hash = ? AND used_at IS NOT NULL LIMIT 1",
+                    [$email, $tokenHash]
                 );
-
-                // 3. Security: Invalidate all existing API tokens for this user
-                Database::query("DELETE FROM api_tokens WHERE user_id = ?", [$resetRecord['user_id']]);
-
-                $db->commit();
-
-                ActivityLog::log(
-                    $resetRecord['business_id'],
-                    $resetRecord['user_id'],
-                    'password_changed',
-                    'user',
-                    $resetRecord['user_id'],
-                    'Password reset completed successfully'
-                );
-
-                Flash::success('Your password has been reset successfully. You can now sign in with your new password.');
-                header('Location: ' . url('login.php'));
-                exit;
-
-            } catch (Throwable $e) {
-                if ($db->inTransaction()) {
-                    $db->rollBack();
+                if ($alreadyUsed) {
+                    $error = 'This password reset code has already been used. Please request a new one.';
+                } else {
+                    $error = 'Invalid password reset code. Please check the 6 digits and try again.';
                 }
-                error_log('Password reset error: ' . $e->getMessage());
-                $error = 'An error occurred while resetting your password. Please try again.';
+            } elseif (strtotime($resetRecord['expires_at']) < time()) {
+                $error = 'This password reset code has expired. Please request a new one.';
+            } else {
+                // Code is valid! Proceed with secure password reset
+                $db = Database::getInstance();
+                $db->beginTransaction();
+
+                try {
+                    $now = date('Y-m-d H:i:s');
+
+                    // 1. Mark token as used
+                    Database::query(
+                        "UPDATE password_resets SET used_at = ? WHERE id = ?",
+                        [$now, $resetRecord['id']]
+                    );
+
+                    // 2. Update user's password
+                    $newHash = password_hash($password, PASSWORD_DEFAULT);
+                    Database::query(
+                        "UPDATE users SET password = ?, updated_at = ? WHERE id = ?",
+                        [$newHash, $now, $resetRecord['user_id']]
+                    );
+
+                    // 3. Update local_sessions if on desktop SQLite
+                    if (Database::getDriver() === 'sqlite') {
+                        try {
+                            $hasTable = Database::fetchColumn("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='local_sessions'");
+                            if ($hasTable) {
+                                Database::query("UPDATE `local_sessions` SET `password_hash` = ? WHERE `user_id` = ?", [$newHash, $resetRecord['user_id']]);
+                            }
+                        } catch (\Throwable $e) {}
+                    }
+
+                    // 4. Invalidate API tokens if present
+                    try {
+                        Database::query("DELETE FROM api_tokens WHERE user_id = ?", [$resetRecord['user_id']]);
+                    } catch (\Throwable $e) {}
+
+                    $db->commit();
+
+                    ActivityLog::log(
+                        $resetRecord['business_id'],
+                        $resetRecord['user_id'],
+                        'password_changed',
+                        'user',
+                        $resetRecord['user_id'],
+                        'Password reset completed successfully'
+                    );
+
+                    Flash::success('Your password has been reset successfully. You can now sign in with your new password.');
+                    header('Location: ' . url('login.php'));
+                    exit;
+
+                } catch (Throwable $e) {
+                    if ($db->inTransaction()) {
+                        $db->rollBack();
+                    }
+                    error_log('Password reset error: ' . $e->getMessage());
+                    $error = 'An error occurred while resetting your password. Please try again.';
+                }
             }
         }
     }
 }
 
-$pageTitle = 'Set New Password — YBT Management';
+$pageTitle = 'Reset Password — YBT Management';
 $isPublicPage = true;
 require YBT_ROOT . '/includes/header.php';
 ?>
@@ -122,7 +143,7 @@ body.public-layout {
     color: var(--color-text);
 }
 
-.auth-card {
+.clean-reset-card {
     width: 100%;
     max-width: 440px;
     background: var(--color-surface);
@@ -133,196 +154,94 @@ body.public-layout {
     box-sizing: border-box;
 }
 
-.auth-header {
-    text-align: center;
-    margin-bottom: 1.75rem;
-}
-
-.auth-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%);
-    color: #ffffff;
+.otp-input-center {
     font-size: 1.5rem;
-    margin-bottom: 0.85rem;
-}
-
-.auth-title {
-    font-size: 1.35rem;
-    font-weight: 700;
-    color: var(--color-text);
-    margin: 0 0 0.35rem 0;
-}
-
-.auth-subtitle {
-    font-size: 0.85rem;
-    color: var(--color-text-muted);
-    margin: 0;
-}
-
-.form-group {
-    margin-bottom: 1.25rem;
-}
-
-.form-label {
-    display: block;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--color-text);
-    margin-bottom: 0.4rem;
-}
-
-.input-box {
-    position: relative;
-    display: flex;
-    align-items: center;
-}
-
-.input-box i {
-    position: absolute;
-    left: 0.85rem;
-    color: var(--color-text-muted);
-    font-size: 1.1rem;
-    pointer-events: none;
-}
-
-.form-input {
-    width: 100%;
-    height: 42px;
-    padding: 0 1rem 0 2.45rem;
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    background: var(--color-bg);
-    color: var(--color-text);
-    font-family: var(--font-family);
-    font-size: 0.875rem;
-    transition: all 0.2s ease;
-    box-sizing: border-box;
-}
-
-.form-input:focus {
-    outline: none;
-    background: var(--color-surface);
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
-}
-
-.btn-submit {
-    width: 100%;
-    height: 42px;
-    border-radius: 8px;
-    border: none;
-    background: var(--color-primary);
-    color: #ffffff;
-    font-family: var(--font-family);
-    font-size: 0.9rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.4rem;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.btn-submit:hover {
-    background: var(--color-primary-hover);
-}
-
-.alert-box {
-    padding: 0.75rem 0.9rem;
-    border-radius: 8px;
-    margin-bottom: 1.25rem;
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-    font-size: 0.8125rem;
-    line-height: 1.4;
-    background: rgba(220, 38, 38, 0.08);
-    border: 1px solid rgba(220, 38, 38, 0.2);
-    color: #DC2626;
-}
-
-.auth-nav {
-    margin-top: 1.5rem;
-    padding-top: 1.25rem;
-    border-top: 1px solid var(--color-border);
+    letter-spacing: 0.4rem;
     text-align: center;
-    font-size: 0.8125rem;
-    color: var(--color-text-muted);
-}
-
-.auth-nav a {
-    color: var(--color-primary);
-    text-decoration: none;
-    font-weight: 500;
-}
-
-.auth-nav a:hover {
-    text-decoration: underline;
+    font-weight: 700;
+    font-family: var(--font-mono, monospace);
+    height: 48px;
 }
 </style>
 
-<div class="auth-card">
-    <div class="auth-header">
-        <div class="auth-badge">
-            <i class="ti ti-lock-cog"></i>
+<div class="clean-reset-card">
+    <div class="text-center mb-4">
+        <div style="width: 54px; height: 54px; border-radius: 12px; background: rgba(14, 165, 233, 0.12); color: var(--color-primary); display: inline-flex; align-items: center; justify-content: center; font-size: 1.6rem; margin-bottom: 0.75rem;">
+            <i class="ti ti-lock-open"></i>
         </div>
-        <h1 class="auth-title">Set New Password</h1>
-        <p class="auth-subtitle"><?= $tokenValid ? 'Create a secure password for your account' : 'Password Reset Verification' ?></p>
+        <h1 style="font-size: 1.4rem; font-weight: 700; margin-bottom: 0.35rem;">Set New Password</h1>
+        <p class="text-muted text-xs">Enter your 6-digit reset code and choose a new password</p>
     </div>
 
     <?php if (!empty($error)): ?>
-        <div class="alert-box">
-            <i class="ti ti-alert-circle mt-0.5"></i>
+        <div class="clean-alert mb-3">
+            <i class="ti ti-alert-circle"></i>
             <div><?= e($error) ?></div>
         </div>
     <?php endif; ?>
 
-    <?php if ($tokenValid): ?>
-        <form method="POST" action="<?= url('reset-password.php') ?>">
-            <?= Csrf::field() ?>
-            <input type="hidden" name="token" value="<?= e($token) ?>">
-            <input type="hidden" name="email" value="<?= e($email) ?>">
+    <?php Flash::render(); ?>
 
-            <div class="form-group">
-                <label for="password" class="form-label">New Password</label>
-                <div class="input-box">
-                    <i class="ti ti-lock"></i>
-                    <input type="password" id="password" name="password" class="form-input" 
-                           placeholder="At least 8 characters" required minlength="8" autofocus>
-                </div>
+    <form action="<?= url('reset-password.php') ?>" method="POST" id="reset-form">
+        <?= Csrf::field() ?>
+
+        <div class="clean-form-group mb-3">
+            <label for="email" class="clean-label">Email Address *</label>
+            <div class="clean-input-box">
+                <i class="ti ti-mail input-icon"></i>
+                <input type="email" id="email" name="email" class="clean-input" 
+                       placeholder="owner@example.com" required 
+                       value="<?= e($email) ?>" autocomplete="email">
             </div>
-
-            <div class="form-group">
-                <label for="confirm_password" class="form-label">Confirm New Password</label>
-                <div class="input-box">
-                    <i class="ti ti-lock-check"></i>
-                    <input type="password" id="confirm_password" name="confirm_password" class="form-input" 
-                           placeholder="Re-enter new password" required minlength="8">
-                </div>
-            </div>
-
-            <button type="submit" class="btn-submit">
-                <span>Save New Password</span>
-                <i class="ti ti-check"></i>
-            </button>
-        </form>
-    <?php else: ?>
-        <div class="text-center py-2">
-            <a href="<?= url('forgot-password.php') ?>" class="btn btn-outline-primary btn-sm">
-                <i class="ti ti-arrow-back-up mr-1"></i> Request a New Link
-            </a>
         </div>
-    <?php endif; ?>
 
-    <div class="auth-nav">
-        Remember your password? <a href="<?= url('login.php') ?>">Back to Login</a>
-    </div>
+        <div class="clean-form-group mb-3">
+            <label for="otp" class="clean-label">6-Digit Reset Code *</label>
+            <div class="clean-input-box">
+                <input type="text" id="otp" name="otp" class="clean-input otp-input-center" 
+                       placeholder="••••••" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" 
+                       required value="<?= e($otp) ?>" autofocus autocomplete="one-time-code">
+            </div>
+            <small class="text-muted text-xs mt-1 d-block">
+                Check your email inbox or spam folder for the code.
+            </small>
+        </div>
+
+        <div class="clean-form-group mb-3">
+            <label for="password" class="clean-label">New Password * (min. 8 chars)</label>
+            <div class="clean-input-box">
+                <i class="ti ti-lock input-icon"></i>
+                <input type="password" id="password" name="password" class="clean-input" 
+                       placeholder="••••••••" required minlength="8" autocomplete="new-password">
+            </div>
+        </div>
+
+        <div class="clean-form-group mb-4">
+            <label for="confirm_password" class="clean-label">Confirm New Password *</label>
+            <div class="clean-input-box">
+                <i class="ti ti-lock-check input-icon"></i>
+                <input type="password" id="confirm_password" name="confirm_password" class="clean-input" 
+                       placeholder="••••••••" required minlength="8" autocomplete="new-password">
+            </div>
+        </div>
+
+        <button type="submit" class="clean-btn-submit mb-3" id="btn-submit">
+            <span>Reset Password & Sign In</span>
+            <i class="ti ti-arrow-right"></i>
+        </button>
+
+        <div class="text-center">
+            <a href="<?= url('forgot-password.php') ?>" class="text-xs text-muted">
+                Didn't get the code? Request again
+            </a>
+            <span class="mx-2 text-muted">&bull;</span>
+            <a href="<?= url('login.php') ?>" class="text-xs text-muted">Sign In</a>
+        </div>
+    </form>
+</div>
+
+<div class="clean-login-footer mt-4 text-center">
+    &copy; <?= date('Y') ?> <?= e(APP_NAME) ?> &bull; Multi-Business MIS
 </div>
 
 <?php require YBT_ROOT . '/includes/footer.php'; ?>

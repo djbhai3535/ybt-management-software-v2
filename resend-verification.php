@@ -1,7 +1,8 @@
 <?php
 /**
- * YBT Management Software — Resend Verification Email
- * Safe against user enumeration, enforces 60-second cooldown per email.
+ * YBT Management Software — Resend Verification Code
+ * Safe against user enumeration, enforces 60-second cooldown per email,
+ * and uses 6-digit numeric OTP codes.
  */
 
 require_once __DIR__ . '/includes/bootstrap.php';
@@ -29,27 +30,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             // Check for user
             $user = Database::fetch(
-                "SELECT u.id, u.name, u.email, u.business_id, u.verification_status 
+                "SELECT u.id, u.name, u.email, u.business_id, u.verification_status, u.is_active 
                  FROM users u 
                  WHERE u.email = ? LIMIT 1",
                 [$email]
             );
 
             // Generic message to prevent enumeration
-            $genericSuccess = "If an unverified account exists for this email address, a new verification link has been dispatched. Please check your inbox and spam folder.";
+            $genericSuccess = "If an unverified account exists for this email address, a new 6-digit verification code has been dispatched. Please check your inbox and spam folder.";
 
-            if (!$user || $user['verification_status'] === 'verified') {
-                // Return generic success without revealing existence
+            if (!$user || ($user['verification_status'] === 'verified' && (int)$user['is_active'] === 1)) {
                 $message = $genericSuccess;
                 $messageType = 'success';
             } elseif ($user['verification_status'] === 'suspended') {
                 $message = 'This account has been suspended. Please contact support.';
                 $messageType = 'error';
             } else {
-                // Check 60-second cooldown
+                // Check 60-second cooldown in portable PHP
                 $recentToken = Database::fetch(
-                    "SELECT TIMESTAMPDIFF(SECOND, created_at, NOW()) AS elapsed_seconds 
-                     FROM email_verifications 
+                    "SELECT created_at FROM email_verifications 
                      WHERE user_id = ? AND used_at IS NULL 
                      ORDER BY id DESC LIMIT 1",
                     [$user['id']]
@@ -58,11 +57,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $cooldownSeconds = 60;
                 $canSend = true;
 
-                if ($recentToken && $recentToken['elapsed_seconds'] !== null) {
-                    $elapsed = (int)$recentToken['elapsed_seconds'];
+                if ($recentToken && !empty($recentToken['created_at'])) {
+                    $elapsed = time() - strtotime($recentToken['created_at']);
                     if ($elapsed < $cooldownSeconds) {
                         $remaining = $cooldownSeconds - $elapsed;
-                        $message = "Please wait {$remaining} second(s) before requesting another verification email.";
+                        $message = "Please wait {$remaining} second(s) before requesting another verification code.";
                         $messageType = 'error';
                         $canSend = false;
                     }
@@ -75,10 +74,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         [$user['id']]
                     );
 
-                    // Generate new cryptographically secure token
-                    $rawToken = bin2hex(random_bytes(32));
-                    $tokenHash = hash('sha256', $rawToken);
-                    $expiresAt = date('Y-m-d H:i:s', time() + (24 * 3600)); // 24 hours
+                    // Generate 6-digit numeric OTP (15-min expiry)
+                    $otp = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
+                    $tokenHash = hash('sha256', $otp);
+                    $expiresAt = date('Y-m-d H:i:s', time() + 900);
 
                     Database::insert('email_verifications', [
                         'user_id' => $user['id'],
@@ -89,19 +88,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'expires_at' => $expiresAt
                     ]);
 
-                    MailerService::sendVerificationEmail($email, $user['name'], $rawToken);
+                    MailerService::sendVerificationOtp($email, $user['name'], $otp);
 
-                    ActivityLog::log($user['business_id'], $user['id'], 'resend_verification', 'user', $user['id'], "Verification email resent to {$email}");
+                    ActivityLog::log($user['business_id'], $user['id'], 'resend_verification', 'user', $user['id'], "Verification code resent to {$email}");
 
-                    $message = $genericSuccess;
-                    $messageType = 'success';
+                    Flash::success("A new 6-digit verification code has been sent. Please enter it below.");
+                    header('Location: ' . url('verify-email.php?email=' . urlencode($email)));
+                    exit;
                 }
             }
         }
     }
 }
 
-$pageTitle = 'Resend Verification Email — YBT Management';
+$pageTitle = 'Resend Verification Code — ' . APP_NAME;
 $isPublicPage = true;
 require YBT_ROOT . '/includes/header.php';
 ?>
@@ -109,21 +109,15 @@ require YBT_ROOT . '/includes/header.php';
 <style>
 body.public-layout {
     min-height: 100vh;
-    margin: 0;
-    padding: 1.5rem 1rem;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     background-color: var(--color-bg);
-    background-image: 
-        radial-gradient(circle at 50% 0%, rgba(14, 165, 233, 0.06) 0%, transparent 60%),
-        radial-gradient(circle at 50% 100%, rgba(99, 102, 241, 0.04) 0%, transparent 60%);
-    font-family: var(--font-family);
-    color: var(--color-text);
+    padding: 1.5rem 1rem;
 }
 
-.auth-card {
+.clean-verify-card {
     width: 100%;
     max-width: 440px;
     background: var(--color-surface);
@@ -133,188 +127,49 @@ body.public-layout {
     box-shadow: var(--shadow-lg, 0 10px 30px rgba(0, 0, 0, 0.06));
     box-sizing: border-box;
 }
-
-.auth-header {
-    text-align: center;
-    margin-bottom: 1.75rem;
-}
-
-.auth-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%);
-    color: #ffffff;
-    font-size: 1.5rem;
-    margin-bottom: 0.85rem;
-}
-
-.auth-title {
-    font-size: 1.35rem;
-    font-weight: 700;
-    color: var(--color-text);
-    margin: 0 0 0.35rem 0;
-}
-
-.auth-subtitle {
-    font-size: 0.85rem;
-    color: var(--color-text-muted);
-    margin: 0;
-}
-
-.form-group {
-    margin-bottom: 1.25rem;
-}
-
-.form-label {
-    display: block;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--color-text);
-    margin-bottom: 0.4rem;
-}
-
-.input-box {
-    position: relative;
-    display: flex;
-    align-items: center;
-}
-
-.input-box i {
-    position: absolute;
-    left: 0.85rem;
-    color: var(--color-text-muted);
-    font-size: 1.1rem;
-    pointer-events: none;
-}
-
-.form-input {
-    width: 100%;
-    height: 42px;
-    padding: 0 1rem 0 2.45rem;
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    background: var(--color-bg);
-    color: var(--color-text);
-    font-family: var(--font-family);
-    font-size: 0.875rem;
-    transition: all 0.2s ease;
-    box-sizing: border-box;
-}
-
-.form-input:focus {
-    outline: none;
-    background: var(--color-surface);
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
-}
-
-.btn-submit {
-    width: 100%;
-    height: 42px;
-    border-radius: 8px;
-    border: none;
-    background: var(--color-primary);
-    color: #ffffff;
-    font-family: var(--font-family);
-    font-size: 0.9rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.4rem;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.btn-submit:hover {
-    background: var(--color-primary-hover);
-}
-
-.alert-box {
-    padding: 0.75rem 0.9rem;
-    border-radius: 8px;
-    margin-bottom: 1.25rem;
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-    font-size: 0.8125rem;
-    line-height: 1.4;
-}
-
-.alert-error {
-    background: rgba(220, 38, 38, 0.08);
-    border: 1px solid rgba(220, 38, 38, 0.2);
-    color: #DC2626;
-}
-
-.alert-success {
-    background: rgba(16, 185, 129, 0.08);
-    border: 1px solid rgba(16, 185, 129, 0.2);
-    color: #059669;
-}
-
-.auth-nav {
-    margin-top: 1.5rem;
-    padding-top: 1.25rem;
-    border-top: 1px solid var(--color-border);
-    text-align: center;
-    font-size: 0.8125rem;
-    color: var(--color-text-muted);
-}
-
-.auth-nav a {
-    color: var(--color-primary);
-    text-decoration: none;
-    font-weight: 500;
-}
-
-.auth-nav a:hover {
-    text-decoration: underline;
-}
 </style>
 
-<div class="auth-card">
-    <div class="auth-header">
-        <div class="auth-badge">
+<div class="clean-verify-card">
+    <div class="text-center mb-4">
+        <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(14, 165, 233, 0.12); color: var(--color-primary); display: inline-flex; align-items: center; justify-content: center; font-size: 1.75rem; margin-bottom: 0.75rem;">
             <i class="ti ti-mail-forward"></i>
         </div>
-        <h1 class="auth-title">Resend Verification</h1>
-        <p class="auth-subtitle">Enter your email to receive a new activation link</p>
+        <h1 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 0.25rem;">Resend Verification Code</h1>
+        <p class="text-muted text-xs">Enter your registered email address to receive a fresh 6-digit code</p>
     </div>
 
     <?php if (!empty($message)): ?>
-        <div class="alert-box <?= $messageType === 'success' ? 'alert-success' : 'alert-error' ?>">
-            <i class="ti <?= $messageType === 'success' ? 'ti-check' : 'ti-alert-circle' ?> mt-0.5"></i>
-            <div><?= e($message) ?></div>
+        <div class="alert alert-<?= $messageType === 'success' ? 'success' : 'danger' ?> mb-3" style="font-size: 0.85rem; border-radius: 8px;">
+            <?= e($message) ?>
         </div>
     <?php endif; ?>
 
-    <form method="POST" action="<?= url('resend-verification.php') ?>">
+    <form action="<?= url('resend-verification.php') ?>" method="POST">
         <?= Csrf::field() ?>
 
-        <div class="form-group">
-            <label for="email" class="form-label">Email Address</label>
-            <div class="input-box">
-                <i class="ti ti-mail"></i>
-                <input type="email" id="email" name="email" class="form-input" 
-                       placeholder="you@company.com" required autofocus 
-                       value="<?= e($_POST['email'] ?? $prefillEmail) ?>" autocomplete="email">
+        <div class="clean-form-group mb-3">
+            <label for="email" class="clean-label">Email Address</label>
+            <div class="clean-input-box">
+                <i class="ti ti-mail input-icon"></i>
+                <input type="email" id="email" name="email" class="clean-input" 
+                       placeholder="owner@example.com" required autofocus 
+                       value="<?= e($prefillEmail) ?>" autocomplete="email">
             </div>
         </div>
 
-        <button type="submit" class="btn-submit">
-            <span>Send Verification Email</span>
+        <button type="submit" class="clean-btn-submit mb-3">
+            <span>Send New Verification Code</span>
             <i class="ti ti-send"></i>
         </button>
-    </form>
 
-    <div class="auth-nav">
-        Remember your password? <a href="<?= url('login.php') ?>">Back to Login</a>
-    </div>
+        <div class="text-center">
+            <a href="<?= url('verify-email.php?email=' . urlencode($prefillEmail)) ?>" class="text-xs text-muted">
+                <i class="ti ti-arrow-left"></i> Enter existing code
+            </a>
+            <span class="mx-2 text-muted">&bull;</span>
+            <a href="<?= url('login.php') ?>" class="text-xs text-muted">Sign In</a>
+        </div>
+    </form>
 </div>
 
 <?php require YBT_ROOT . '/includes/footer.php'; ?>

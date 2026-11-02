@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $error = $result['error'];
                 if (!empty($result['pending_verification'])) {
-                    $pendingVerificationEmail = $result['email'] ?? '';
+                    $pendingVerificationEmail = $result['email'] ?? $email;
                 }
             }
         }
@@ -103,7 +103,7 @@ body.public-layout {
 /* Main Card */
 .clean-login-card {
     width: 100%;
-    max-width: 410px;
+    max-width: 420px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 16px;
@@ -123,12 +123,12 @@ body.public-layout {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 48px;
-    height: 48px;
+    width: 50px;
+    height: 50px;
     border-radius: 12px;
     background: linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%);
     color: #ffffff;
-    font-size: 1.5rem;
+    font-size: 1.6rem;
     margin-bottom: 0.85rem;
     box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
 }
@@ -268,66 +268,13 @@ body.public-layout {
     transform: translateY(0);
 }
 
-/* Quick Demo Access */
-.clean-demo-divider {
-    display: flex;
-    align-items: center;
-    margin: 1.5rem 0 1rem;
-    text-align: center;
-}
-
-.clean-demo-divider::before,
-.clean-demo-divider::after {
-    content: '';
-    flex: 1;
-    border-bottom: 1px solid var(--color-border);
-}
-
-.clean-demo-divider span {
-    padding: 0 0.75rem;
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--color-text-muted);
-}
-
-.clean-demo-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.65rem;
-}
-
-.clean-btn-demo {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.4rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: 8px;
-    border: 1px solid var(--color-border);
-    background: var(--color-bg);
-    color: var(--color-text);
-    font-size: 0.78rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    text-decoration: none;
-}
-
-.clean-btn-demo:hover {
-    border-color: var(--color-primary);
-    background: var(--color-surface-hover);
-    color: var(--color-primary);
-}
-
 /* Alert */
 .clean-alert {
     padding: 0.75rem 0.9rem;
     border-radius: 8px;
     margin-bottom: 1.25rem;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.5rem;
     font-size: 0.8125rem;
     background: rgba(220, 38, 38, 0.08);
@@ -369,13 +316,13 @@ body.public-layout {
 
     <?php if (!empty($error)): ?>
         <div class="clean-alert">
-            <i class="ti ti-alert-circle"></i>
-            <div>
-                <?= e($error) ?>
+            <i class="ti ti-alert-circle" style="font-size: 1.1rem; margin-top: 0.1rem;"></i>
+            <div style="flex: 1;">
+                <div><?= e($error) ?></div>
                 <?php if (!empty($pendingVerificationEmail)): ?>
-                    <div style="margin-top: 0.35rem;">
-                        <a href="<?= url('resend-verification.php?email=' . urlencode($pendingVerificationEmail)) ?>" style="color: inherit; text-decoration: underline; font-weight: 600;">
-                            Resend verification link
+                    <div style="margin-top: 0.6rem;">
+                        <a href="<?= url('verify-email.php?email=' . urlencode($pendingVerificationEmail)) ?>" class="btn btn-sm btn-primary" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; padding: 0.3rem 0.75rem;">
+                            <i class="ti ti-shield-check"></i> Enter 6-Digit Verification Code
                         </a>
                     </div>
                 <?php endif; ?>
@@ -389,7 +336,7 @@ body.public-layout {
         <?= Csrf::field() ?>
 
         <div class="clean-form-group">
-            <label for="email" class="clean-label">Email</label>
+            <label for="email" class="clean-label">Email Address</label>
             <div class="clean-input-box">
                 <i class="ti ti-mail input-icon"></i>
                 <input type="email" id="email" name="email" class="clean-input" 
@@ -423,30 +370,14 @@ body.public-layout {
             <i class="ti ti-arrow-right"></i>
         </button>
     </form>
-    <div style="text-align: center; margin-top: 1.25rem; font-size: 0.85rem; color: var(--color-text-muted);">
-        Don't have an account? <a href="<?= url('register.php') ?>" style="color: var(--color-primary); text-decoration: none; font-weight: 600;">Register your shop</a>
-    </div>
 
-    <!-- Quick Demo Accounts -->
-    <div class="clean-demo-divider">
-        <span>Quick Demo Access</span>
-    </div>
-
-    <div class="clean-demo-actions">
-        <button type="button" class="clean-btn-demo" onclick="quickLogin('owner@ybt.com', 'password123')" title="1-Click Login as Owner">
-            <i class="ti ti-user-check text-primary"></i>
-            <span>Owner</span>
-        </button>
-
-        <button type="button" class="clean-btn-demo" onclick="quickLogin('manager@ybt.com', 'password123')" title="1-Click Login as Manager">
-            <i class="ti ti-briefcase text-secondary"></i>
-            <span>Manager</span>
-        </button>
+    <div style="text-align: center; margin-top: 1.5rem; font-size: 0.85rem; color: var(--color-text-muted);">
+        Don't have an account? <a href="<?= url('register.php') ?>" style="color: var(--color-primary); text-decoration: none; font-weight: 600;">Register your business</a>
     </div>
 </div>
 
 <div class="clean-login-footer">
-    &copy; <?= date('Y') ?> <?= e(APP_NAME) ?> &bull; v<?= e(APP_VERSION) ?>
+    &copy; <?= date('Y') ?> <?= e(APP_NAME) ?> &bull; Multi-Business MIS
 </div>
 
 <script>
@@ -475,29 +406,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
-
-// Quick 1-Click Login
-function quickLogin(email, password) {
-    const emailField = document.getElementById('email');
-    const pwdField = document.getElementById('password');
-    const form = document.getElementById('login-form');
-    const submitBtn = document.getElementById('btn-submit');
-
-    if (emailField && pwdField && form) {
-        emailField.value = email;
-        pwdField.value = password;
-
-        if (submitBtn) {
-            submitBtn.disabled = true;
-            submitBtn.style.opacity = '0.8';
-            submitBtn.innerHTML = '<i class="ti ti-loader rotate mr-1"></i> Signing in...';
-        }
-
-        setTimeout(function() {
-            form.submit();
-        }, 100);
-    }
-}
 </script>
 
 <?php require YBT_ROOT . '/includes/footer.php'; ?>
