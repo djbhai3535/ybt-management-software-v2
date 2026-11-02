@@ -40,11 +40,13 @@
     ],
     "resources": {
       "../php": "php",
+      "../../admin": "admin",
       "../../assets": "assets",
       "../../config": "config",
       "../../database": "database",
       "../../desktop/src": "desktop/src",
       "../../desktop/database": "desktop/database",
+      "../../errors": "errors",
       "../../includes": "includes",
       "../../services": "services",
       "../../storage": "storage",

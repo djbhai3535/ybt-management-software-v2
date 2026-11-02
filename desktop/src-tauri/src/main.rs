@@ -113,10 +113,21 @@ fn resolve_paths() -> Result<(PathBuf, PathBuf, Option<PathBuf>, PathBuf), Strin
     ];
 
     let mut resolved_root = None;
-    for cand in &root_candidates {
-        if cand.join("dashboard.php").exists() {
-            resolved_root = Some(clean_path(cand));
-            break;
+
+    // Developer override: prioritize explicit source root if specified via environment
+    if let Ok(env_root) = std::env::var("YBT_SOURCE_ROOT") {
+        let p = clean_path(&PathBuf::from(env_root));
+        if p.join("dashboard.php").exists() {
+            resolved_root = Some(p);
+        }
+    }
+
+    if resolved_root.is_none() {
+        for cand in &root_candidates {
+            if cand.join("dashboard.php").exists() {
+                resolved_root = Some(clean_path(cand));
+                break;
+            }
         }
     }
 

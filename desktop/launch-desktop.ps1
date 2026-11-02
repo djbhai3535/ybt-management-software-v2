@@ -18,6 +18,11 @@ function Get-FreePort {
 $port = Get-FreePort
 Write-Host "Allocated loopback port: $port"
 
+# Set environment variables for portable desktop execution
+$env:APP_ENV = "desktop"
+$env:YBT_SQLITE_PATH = "$env:APPDATA\YBT Management Software\storage\desktop\ybt_local.sqlite"
+$env:YBT_SOURCE_ROOT = $rootDir
+
 # 2. Launch bundled portable PHP runtime (No XAMPP required)
 $proc = Start-Process -FilePath $phpBin `
     -ArgumentList "-c `"$phpIni`" -S 127.0.0.1:$port -t `"$rootDir`"" `
