@@ -7,6 +7,212 @@
 class Database {
     private static ?PDO $instance = null;
     private static string $driver = 'mysql';
+    private static array $tableColumnCache = [];
+
+    /**
+     * Inspect and cache column names for a given table
+     */
+    public static function getTableColumns(string $table): array {
+        $table = trim(str_replace('`', '', $table));
+        if (isset(self::$tableColumnCache[$table])) {
+            return self::$tableColumnCache[$table];
+        }
+
+        $cols = [];
+        try {
+            if (self::getDriver() === 'sqlite') {
+                $rows = self::fetchAll("PRAGMA table_info(`{$table}`)");
+                foreach ($rows as $r) {
+                    if (!empty($r['name'])) {
+                        $cols[strtolower($r['name'])] = true;
+                    }
+                }
+            } else {
+                $rows = self::fetchAll("SHOW COLUMNS FROM `{$table}`");
+                foreach ($rows as $r) {
+                    if (!empty($r['Field'])) {
+                        $cols[strtolower($r['Field'])] = true;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            return [];
+        }
+
+        self::$tableColumnCache[$table] = $cols;
+        return $cols;
+    }
+
+    /**
+     * Automatically normalize and cross-map fields across schema variations
+     */
+    public static function normalizeTableData(string $table, array $data): array {
+        $cleanTable = strtolower(trim(str_replace('`', '', $table)));
+
+        if ($cleanTable === 'invoices') {
+            if (isset($data['grand_total']) && !isset($data['total_amount'])) {
+                $data['total_amount'] = $data['grand_total'];
+            } elseif (isset($data['total_amount']) && !isset($data['grand_total'])) {
+                $data['grand_total'] = $data['total_amount'];
+            }
+            if (isset($data['amount_paid']) && !isset($data['paid_amount'])) {
+                $data['paid_amount'] = $data['amount_paid'];
+            } elseif (isset($data['paid_amount']) && !isset($data['amount_paid'])) {
+                $data['amount_paid'] = $data['paid_amount'];
+            }
+            if (isset($data['outstanding']) && !isset($data['balance_amount'])) {
+                $data['balance_amount'] = $data['outstanding'];
+            } elseif (isset($data['balance_amount']) && !isset($data['outstanding'])) {
+                $data['outstanding'] = $data['balance_amount'];
+            }
+            if (isset($data['invoice_date']) && !isset($data['issue_date'])) {
+                $data['issue_date'] = $data['invoice_date'];
+            } elseif (isset($data['issue_date']) && !isset($data['invoice_date'])) {
+                $data['invoice_date'] = $data['issue_date'];
+            }
+            if (isset($data['tax_total']) && !isset($data['tax_amount'])) {
+                $data['tax_amount'] = $data['tax_total'];
+            } elseif (isset($data['tax_amount']) && !isset($data['tax_total'])) {
+                $data['tax_total'] = $data['tax_amount'];
+            }
+            if (isset($data['discount_total']) && !isset($data['discount_amount'])) {
+                $data['discount_amount'] = $data['discount_total'];
+            } elseif (isset($data['discount_amount']) && !isset($data['discount_total'])) {
+                $data['discount_total'] = $data['discount_amount'];
+            }
+            if (isset($data['uuid']) && !isset($data['sync_uuid'])) {
+                $data['sync_uuid'] = $data['uuid'];
+            } elseif (isset($data['sync_uuid']) && !isset($data['uuid'])) {
+                $data['uuid'] = $data['sync_uuid'];
+            }
+        } elseif ($cleanTable === 'invoice_items' || $cleanTable === 'quotation_items') {
+            if (isset($data['description']) && !isset($data['item_name'])) {
+                $data['item_name'] = $data['description'];
+            }
+            if (isset($data['description']) && !isset($data['item_description'])) {
+                $data['item_description'] = $data['description'];
+            }
+            if (isset($data['item_name']) && !isset($data['description'])) {
+                $data['description'] = $data['item_name'];
+            }
+            if (isset($data['line_total']) && !isset($data['total_amount'])) {
+                $data['total_amount'] = $data['line_total'];
+            } elseif (isset($data['total_amount']) && !isset($data['line_total'])) {
+                $data['line_total'] = $data['total_amount'];
+            }
+        } elseif ($cleanTable === 'quotations') {
+            if (isset($data['grand_total']) && !isset($data['total_amount'])) {
+                $data['total_amount'] = $data['grand_total'];
+            } elseif (isset($data['total_amount']) && !isset($data['grand_total'])) {
+                $data['grand_total'] = $data['total_amount'];
+            }
+            if (isset($data['quotation_date']) && !isset($data['issue_date'])) {
+                $data['issue_date'] = $data['quotation_date'];
+            } elseif (isset($data['issue_date']) && !isset($data['quotation_date'])) {
+                $data['quotation_date'] = $data['issue_date'];
+            }
+            if (isset($data['validity_date']) && !isset($data['valid_until'])) {
+                $data['valid_until'] = $data['validity_date'];
+            } elseif (isset($data['valid_until']) && !isset($data['validity_date'])) {
+                $data['validity_date'] = $data['valid_until'];
+            }
+            if (isset($data['tax_total']) && !isset($data['tax_amount'])) {
+                $data['tax_amount'] = $data['tax_total'];
+            } elseif (isset($data['tax_amount']) && !isset($data['tax_total'])) {
+                $data['tax_total'] = $data['tax_amount'];
+            }
+            if (isset($data['discount_total']) && !isset($data['discount_amount'])) {
+                $data['discount_amount'] = $data['discount_total'];
+            } elseif (isset($data['discount_amount']) && !isset($data['discount_total'])) {
+                $data['discount_total'] = $data['discount_amount'];
+            }
+        } elseif ($cleanTable === 'payments') {
+            if (isset($data['method']) && !isset($data['payment_method'])) {
+                $data['payment_method'] = $data['method'];
+            } elseif (isset($data['payment_method']) && !isset($data['method'])) {
+                $data['method'] = $data['payment_method'];
+            }
+            if (isset($data['reference']) && !isset($data['reference_number'])) {
+                $data['reference_number'] = $data['reference'];
+            } elseif (isset($data['transaction_reference']) && !isset($data['reference_number'])) {
+                $data['reference_number'] = $data['transaction_reference'];
+            } elseif (isset($data['reference_number']) && !isset($data['reference'])) {
+                $data['reference'] = $data['reference_number'];
+            }
+            if (isset($data['uuid']) && !isset($data['sync_uuid'])) {
+                $data['sync_uuid'] = $data['uuid'];
+            } elseif (isset($data['sync_uuid']) && !isset($data['uuid'])) {
+                $data['uuid'] = $data['sync_uuid'];
+            }
+        } elseif ($cleanTable === 'expenses') {
+            if (isset($data['method']) && !isset($data['payment_method'])) {
+                $data['payment_method'] = $data['method'];
+            } elseif (isset($data['payment_method']) && !isset($data['method'])) {
+                $data['method'] = $data['payment_method'];
+            }
+            if (isset($data['vendor']) && !isset($data['payee'])) {
+                $data['payee'] = $data['vendor'];
+            } elseif (isset($data['payee']) && !isset($data['vendor'])) {
+                $data['vendor'] = $data['payee'];
+            }
+            if (isset($data['reference']) && !isset($data['reference_number'])) {
+                $data['reference_number'] = $data['reference'];
+            } elseif (isset($data['reference_number']) && !isset($data['reference'])) {
+                $data['reference'] = $data['reference_number'];
+            }
+            if (isset($data['notes']) && !isset($data['description'])) {
+                $data['description'] = $data['notes'];
+            } elseif (isset($data['description']) && !isset($data['notes'])) {
+                $data['notes'] = $data['description'];
+            }
+            if (isset($data['uuid']) && !isset($data['sync_uuid'])) {
+                $data['sync_uuid'] = $data['uuid'];
+            } elseif (isset($data['sync_uuid']) && !isset($data['uuid'])) {
+                $data['uuid'] = $data['sync_uuid'];
+            }
+        } elseif ($cleanTable === 'products') {
+            if (isset($data['cost_price']) && !isset($data['purchase_price'])) {
+                $data['purchase_price'] = $data['cost_price'];
+            } elseif (isset($data['purchase_price']) && !isset($data['cost_price'])) {
+                $data['cost_price'] = $data['purchase_price'];
+            }
+            if (isset($data['selling_price']) && !isset($data['sale_price'])) {
+                $data['sale_price'] = $data['selling_price'];
+            } elseif (isset($data['sale_price']) && !isset($data['selling_price'])) {
+                $data['selling_price'] = $data['sale_price'];
+            }
+            if (isset($data['uuid']) && !isset($data['sync_uuid'])) {
+                $data['sync_uuid'] = $data['uuid'];
+            } elseif (isset($data['sync_uuid']) && !isset($data['uuid'])) {
+                $data['uuid'] = $data['sync_uuid'];
+            }
+        } elseif ($cleanTable === 'businesses') {
+            if (isset($data['default_currency']) && !isset($data['currency'])) {
+                $data['currency'] = $data['default_currency'];
+            } elseif (isset($data['currency']) && !isset($data['default_currency'])) {
+                $data['default_currency'] = $data['currency'];
+            }
+            if (isset($data['gstin']) && !isset($data['tax_number'])) {
+                $data['tax_number'] = $data['gstin'];
+            } elseif (isset($data['tax_number']) && !isset($data['gstin'])) {
+                $data['gstin'] = $data['tax_number'];
+            }
+        }
+
+        // Filter against existing table columns to prevent Unknown column errors
+        $existingCols = self::getTableColumns($cleanTable);
+        if (!empty($existingCols)) {
+            $filtered = [];
+            foreach ($data as $col => $val) {
+                if (isset($existingCols[strtolower($col)])) {
+                    $filtered[$col] = $val;
+                }
+            }
+            return $filtered;
+        }
+
+        return $data;
+    }
 
     public static function getInstance(): PDO {
         if (self::$instance === null) {
@@ -56,6 +262,18 @@ class Database {
                             throw $e;
                         }
                         error_log('Database connection failed: ' . $e->getMessage());
+                        if (defined('YBT_API_REQUEST')) {
+                            http_response_code(500);
+                            header('Content-Type: application/json; charset=utf-8');
+                            echo json_encode([
+                                'success' => false,
+                                'error' => [
+                                    'code' => 'DATABASE_CONNECTION_ERROR',
+                                    'message' => 'Database connection error. Please check configuration.'
+                                ]
+                            ]);
+                            exit;
+                        }
                         die('Database connection error. Please check configuration.');
                     }
                 }
@@ -168,71 +386,37 @@ class Database {
         // Table-name format: Database::insert('table_name', ['col' => 'val'])
         $table = str_replace('`', '``', $tableOrSql);
 
-        // Auto-compatibility on SQLite for sync & schema fields
-        if (self::getDriver() === 'sqlite') {
-            $syncTables = ['payments', 'invoices', 'customers', 'products', 'expenses', 'users', 'staff_invitations'];
-            if (in_array($table, $syncTables, true)) {
-                if (!isset($paramsOrData['uuid'])) {
-                    $paramsOrData['uuid'] = function_exists('generateUuidV4') 
-                        ? generateUuidV4() 
-                        : sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
-                }
-                if (!isset($paramsOrData['created_at'])) {
-                    $paramsOrData['created_at'] = date('Y-m-d H:i:s');
-                }
-                if (!isset($paramsOrData['updated_at'])) {
-                    $paramsOrData['updated_at'] = date('Y-m-d H:i:s');
-                }
-                if ($table === 'businesses') {
-                if (isset($paramsOrData['default_currency']) && !isset($paramsOrData['currency'])) {
-                    $paramsOrData['currency'] = $paramsOrData['default_currency'];
-                } elseif (isset($paramsOrData['currency']) && !isset($paramsOrData['default_currency'])) {
-                    $paramsOrData['default_currency'] = $paramsOrData['currency'];
-                }
-                if (isset($paramsOrData['gstin']) && !isset($paramsOrData['tax_number'])) {
-                    $paramsOrData['tax_number'] = $paramsOrData['gstin'];
-                } elseif (isset($paramsOrData['tax_number']) && !isset($paramsOrData['gstin'])) {
-                    $paramsOrData['gstin'] = $paramsOrData['tax_number'];
+        // Normalize schema field aliases and filter against existing table columns
+        $paramsOrData = self::normalizeTableData($table, $paramsOrData);
+
+        // Auto-compatibility for sync & schema fields
+        $syncTables = ['payments', 'invoices', 'customers', 'products', 'expenses', 'users', 'staff_invitations'];
+        if (in_array(strtolower($table), $syncTables, true)) {
+            if (!isset($paramsOrData['uuid']) && !isset($paramsOrData['sync_uuid'])) {
+                $genUuid = function_exists('generateUuidV4') 
+                    ? generateUuidV4() 
+                    : sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x', mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0x0fff) | 0x4000, mt_rand(0, 0x3fff) | 0x8000, mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff));
+                $paramsOrData['uuid'] = $genUuid;
+                $paramsOrData['sync_uuid'] = $genUuid;
+            }
+            if (!isset($paramsOrData['created_at'])) {
+                $paramsOrData['created_at'] = date('Y-m-d H:i:s');
+            }
+            if (!isset($paramsOrData['updated_at'])) {
+                $paramsOrData['updated_at'] = date('Y-m-d H:i:s');
+            }
+        }
+
+        // Final column filter after default injection
+        $existingCols = self::getTableColumns($table);
+        if (!empty($existingCols)) {
+            $filtered = [];
+            foreach ($paramsOrData as $c => $v) {
+                if (isset($existingCols[strtolower($c)])) {
+                    $filtered[$c] = $v;
                 }
             }
-            if ($table === 'payments') {
-                    if (isset($paramsOrData['method']) && !isset($paramsOrData['payment_method'])) {
-                        $paramsOrData['payment_method'] = $paramsOrData['method'];
-                    } elseif (isset($paramsOrData['payment_method']) && !isset($paramsOrData['method'])) {
-                        $paramsOrData['method'] = $paramsOrData['payment_method'];
-                    }
-                    if (isset($paramsOrData['reference']) && !isset($paramsOrData['transaction_reference'])) {
-                        $paramsOrData['transaction_reference'] = $paramsOrData['reference'];
-                    } elseif (isset($paramsOrData['transaction_reference']) && !isset($paramsOrData['reference'])) {
-                        $paramsOrData['reference'] = $paramsOrData['transaction_reference'];
-                    }
-                }
-                if ($table === 'expenses') {
-                    if (isset($paramsOrData['category_id']) && !isset($paramsOrData['category'])) {
-                        try {
-                            $catName = self::fetch("SELECT name FROM expense_categories WHERE id = ?", [$paramsOrData['category_id']]);
-                            $paramsOrData['category'] = $catName['name'] ?? 'General';
-                        } catch (\Throwable $e) {
-                            $paramsOrData['category'] = 'General';
-                        }
-                    } elseif (isset($paramsOrData['category']) && !isset($paramsOrData['category_id'])) {
-                        try {
-                            $cat = self::fetch("SELECT id FROM expense_categories WHERE name = ?", [$paramsOrData['category']]);
-                            $paramsOrData['category_id'] = $cat['id'] ?? 1;
-                        } catch (\Throwable $e) {
-                            $paramsOrData['category_id'] = 1;
-                        }
-                    }
-                    if (!isset($paramsOrData['category'])) {
-                        $paramsOrData['category'] = 'General';
-                    }
-                    if (isset($paramsOrData['method']) && !isset($paramsOrData['payment_method'])) {
-                        $paramsOrData['payment_method'] = $paramsOrData['method'];
-                    } elseif (isset($paramsOrData['payment_method']) && !isset($paramsOrData['method'])) {
-                        $paramsOrData['method'] = $paramsOrData['payment_method'];
-                    }
-                }
-            }
+            $paramsOrData = $filtered;
         }
 
         $columns = array_keys($paramsOrData);
@@ -258,6 +442,12 @@ class Database {
      * Update rows in table with key-value data and WHERE condition
      */
     public static function update(string $table, array $data, string $where = '', array $whereParams = []): int {
+        if (empty($data)) {
+            return 0;
+        }
+
+        // Normalize schema field aliases and filter against existing table columns
+        $data = self::normalizeTableData($table, $data);
         if (empty($data)) {
             return 0;
         }

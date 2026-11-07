@@ -136,7 +136,32 @@ class AIProviderService {
             $row['has_key'] = true;
             $len = strlen($row['api_key']);
             $row['masked_key'] = $len > 6 ? substr($row['api_key'], 0, 3) . '••••••••' . substr($row['api_key'], -4) : '••••••••';
-        } else if ($row) {
+            return $row;
+        }
+
+        // Fallback to Central Platform AI Provider configured by Super Admin
+        if (class_exists('PlatformSettings')) {
+            $central = PlatformSettings::getCentralAI();
+            if (!empty($central['has_key'])) {
+                return [
+                    'id' => 0,
+                    'business_id' => 0,
+                    'provider_type' => $central['provider'],
+                    'display_name' => 'DJ CRM Central AI (' . ucfirst(str_replace('_', ' ', $central['provider'])) . ')',
+                    'model_id' => $central['model'],
+                    'base_url' => $central['base_url'],
+                    'api_key' => $central['api_key'],
+                    'has_key' => true,
+                    'masked_key' => $central['masked_key'],
+                    'temperature' => 0.7,
+                    'max_tokens' => 4096,
+                    'is_active' => 1,
+                    'is_default' => 1
+                ];
+            }
+        }
+
+        if ($row) {
             $row['api_key'] = '';
             $row['has_key'] = false;
             $row['masked_key'] = 'None';

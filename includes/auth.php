@@ -66,7 +66,7 @@ class Auth {
         $userId = (int)$user['id'];
         $businessId = (int)$user['business_id'];
         $roleSlug = $user['role_slug'] ?? 'staff';
-        $isOwner = ($roleSlug === 'owner') || !empty($user['is_owner']);
+        $isOwner = (!$isSuperAdmin) && (($roleSlug === 'owner') || !empty($user['is_owner']));
         $userName = $user['name'];
         $userEmail = $user['email'];
         $businessName = $user['business_name'] ?? 'Local Business';

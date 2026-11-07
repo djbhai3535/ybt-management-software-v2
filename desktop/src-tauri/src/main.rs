@@ -34,8 +34,8 @@ struct AppState {
 #[tauri::command]
 fn get_app_info(state: tauri::State<AppState>) -> AppInfo {
     AppInfo {
-        name: "YBT Management Software".into(),
-        version: "1.0.0".into(),
+        name: "DJ CRM Software".into(),
+        version: "1.0.2".into(),
         platform: "windows".into(),
         offline_capable: true,
         server_port: state.port,
@@ -188,6 +188,7 @@ fn spawn_php_process(
     cmd.env("APP_URL", format!("http://127.0.0.1:{}", port));
     cmd.env("APP_PORT", port.to_string());
     cmd.env("APP_ENV", "desktop");
+    cmd.env("CLOUD_SYNC_URL", "https://apkashow.com");
     cmd.env("YBT_SQLITE_PATH", sqlite_db);
     if let Some(parent) = sqlite_db.parent().and_then(|p| p.parent()) {
         cmd.env("YBT_STORAGE_PATH", parent);
@@ -234,7 +235,7 @@ fn main() {
     let dashboard_path = root_dir.join("dashboard.php");
 
     println!("=======================================================");
-    println!(" YBT Management Software — Runtime Supervisor Diagnostics");
+    println!(" DJ CRM Software — Runtime Supervisor Diagnostics");
     println!("=======================================================");
     println!("1. PHP Executable:      {}", php_bin.display());
     println!("2. PHP Configuration:   {}", php_ini.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "None".to_string()));

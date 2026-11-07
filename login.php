@@ -1,6 +1,6 @@
 <?php
 /**
- * YBT Management Software — Clean Enterprise Authentication Portal
+ * DJ CRM Software — Clean Enterprise Authentication Portal
  */
 
 require_once __DIR__ . '/includes/bootstrap.php';
@@ -45,13 +45,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$pageTitle = 'Sign In — YBT Management';
+$pageTitle = 'Sign In — ' . APP_NAME;
 $isPublicPage = true;
 require YBT_ROOT . '/includes/header.php';
 ?>
 
 <style>
-/* Clean, Minimalist Login Layout */
+/* Clean, Modern Commercial Login Layout */
 body.public-layout {
     min-height: 100vh;
     margin: 0;
@@ -60,15 +60,15 @@ body.public-layout {
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    background-color: var(--color-bg);
+    background-color: var(--color-bg, #0f172a);
     background-image: 
-        radial-gradient(circle at 50% 0%, rgba(14, 165, 233, 0.06) 0%, transparent 60%),
-        radial-gradient(circle at 50% 100%, rgba(99, 102, 241, 0.04) 0%, transparent 60%);
-    font-family: var(--font-family);
-    color: var(--color-text);
+        radial-gradient(circle at 50% 0%, rgba(37, 99, 235, 0.12) 0%, transparent 60%),
+        radial-gradient(circle at 50% 100%, rgba(14, 165, 233, 0.08) 0%, transparent 60%);
+    font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    color: var(--color-text, #f8fafc);
     position: relative;
     box-sizing: border-box;
-    padding: 1.5rem 1rem;
+    padding: 2rem 1rem;
 }
 
 /* Floating Corner Theme Toggle */
@@ -80,35 +80,35 @@ body.public-layout {
 }
 
 .btn-theme-minimal {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    border: 1px solid var(--color-border);
-    background: var(--color-surface);
-    color: var(--color-text-muted);
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    border: 1px solid var(--color-border, #334155);
+    background: var(--color-surface, #1e293b);
+    color: var(--color-text-muted, #94a3b8);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    font-size: 1.1rem;
+    font-size: 1.15rem;
     transition: all 0.2s ease;
 }
 
 .btn-theme-minimal:hover {
-    color: var(--color-primary);
-    border-color: var(--color-primary);
-    background: var(--color-surface-hover);
+    color: #2563EB;
+    border-color: #2563EB;
+    background: var(--color-surface-hover, #334155);
 }
 
 /* Main Card */
 .clean-login-card {
     width: 100%;
-    max-width: 420px;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 16px;
-    padding: 2.25rem 2rem;
-    box-shadow: var(--shadow-lg, 0 10px 30px rgba(0, 0, 0, 0.06));
+    max-width: 440px;
+    background: var(--color-surface, #1e293b);
+    border: 1px solid var(--color-border, #334155);
+    border-radius: 20px;
+    padding: 2.5rem 2.25rem;
+    box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.04);
     box-sizing: border-box;
     transition: border-color 0.2s ease;
 }
@@ -116,48 +116,47 @@ body.public-layout {
 /* Card Header */
 .clean-login-header {
     text-align: center;
-    margin-bottom: 1.75rem;
+    margin-bottom: 2rem;
 }
 
 .clean-logo-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 50px;
-    height: 50px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #0EA5E9 0%, #0284C7 100%);
-    color: #ffffff;
-    font-size: 1.6rem;
-    margin-bottom: 0.85rem;
-    box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+    margin-bottom: 1rem;
+}
+
+.clean-logo-badge img {
+    height: 52px;
+    width: auto;
+    object-fit: contain;
 }
 
 .clean-login-title {
-    font-size: 1.45rem;
+    font-size: 1.6rem;
     font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--color-text);
-    margin: 0 0 0.35rem 0;
+    letter-spacing: -0.025em;
+    color: var(--color-text, #f8fafc);
+    margin: 0 0 0.4rem 0;
 }
 
 .clean-login-subtitle {
-    font-size: 0.85rem;
-    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    color: var(--color-text-muted, #94a3b8);
     margin: 0;
 }
 
 /* Form Controls */
 .clean-form-group {
-    margin-bottom: 1.15rem;
+    margin-bottom: 1.25rem;
 }
 
 .clean-label {
     display: block;
-    font-size: 0.8125rem;
-    font-weight: 500;
-    color: var(--color-text);
-    margin-bottom: 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-text, #e2e8f0);
+    margin-bottom: 0.45rem;
 }
 
 .clean-input-box {
@@ -168,43 +167,43 @@ body.public-layout {
 
 .clean-input-box i.input-icon {
     position: absolute;
-    left: 0.85rem;
-    color: var(--color-text-muted);
-    font-size: 1.1rem;
+    left: 0.95rem;
+    color: var(--color-text-muted, #94a3b8);
+    font-size: 1.15rem;
     pointer-events: none;
 }
 
 .clean-input {
     width: 100%;
-    height: 42px;
-    padding: 0 2.5rem 0 2.45rem;
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    background: var(--color-bg);
-    color: var(--color-text);
-    font-family: var(--font-family);
-    font-size: 0.875rem;
+    height: 46px;
+    padding: 0 2.5rem 0 2.65rem;
+    border: 1px solid var(--color-border, #334155);
+    border-radius: 10px;
+    background: var(--color-bg, #0f172a);
+    color: var(--color-text, #f8fafc);
+    font-family: inherit;
+    font-size: 0.925rem;
     transition: all 0.2s ease;
     box-sizing: border-box;
 }
 
 .clean-input:focus {
     outline: none;
-    background: var(--color-surface);
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+    border-color: #2563EB;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+    background: var(--color-surface, #1e293b);
 }
 
 .clean-pwd-toggle {
     position: absolute;
-    right: 0.65rem;
+    right: 0.75rem;
     background: none;
     border: none;
-    color: var(--color-text-muted);
-    font-size: 1.15rem;
-    padding: 0.25rem;
+    color: var(--color-text-muted, #94a3b8);
+    font-size: 1.2rem;
+    padding: 0.35rem;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -212,87 +211,148 @@ body.public-layout {
 }
 
 .clean-pwd-toggle:hover {
-    color: var(--color-text);
+    color: #2563EB;
 }
 
 .clean-form-meta {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 1.25rem;
-    font-size: 0.8125rem;
+    margin-bottom: 1.5rem;
+    font-size: 0.85rem;
 }
 
 .clean-remember {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
-    color: var(--color-text-secondary);
+    gap: 0.45rem;
+    color: var(--color-text-secondary, #cbd5e1);
     cursor: pointer;
     user-select: none;
 }
 
 .clean-remember input[type="checkbox"] {
-    width: 15px;
-    height: 15px;
-    accent-color: var(--color-primary);
+    width: 16px;
+    height: 16px;
+    accent-color: #2563EB;
     cursor: pointer;
 }
 
-.clean-btn-submit {
+/* Solid Colorful Bootstrap-Style Primary Button */
+.btn-solid-primary {
     width: 100%;
-    height: 42px;
-    border-radius: 8px;
-    border: none;
-    background: var(--color-primary);
-    color: #ffffff;
-    font-family: var(--font-family);
+    height: 46px;
+    border-radius: 10px;
+    border: 1px solid #1D4ED8;
+    background: linear-gradient(180deg, #2563EB 0%, #1D4ED8 100%);
+    color: #ffffff !important;
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.btn-solid-primary:hover {
+    background: linear-gradient(180deg, #1D4ED8 0%, #1E40AF 100%);
+    box-shadow: 0 6px 18px rgba(37, 99, 235, 0.55);
+    transform: translateY(-1px);
+}
+
+.btn-solid-primary:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
+}
+
+/* Styled Prominent Register CTA Button */
+.btn-register-cta {
+    width: 100%;
+    height: 44px;
+    border-radius: 10px;
+    border: 1.5px solid #2563EB;
+    background: transparent;
+    color: #38BDF8 !important;
+    font-family: inherit;
     font-size: 0.9rem;
     font-weight: 600;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.4rem;
+    gap: 0.5rem;
+    text-decoration: none;
     cursor: pointer;
     transition: all 0.2s ease;
-    box-shadow: 0 2px 6px rgba(14, 165, 233, 0.25);
+    box-sizing: border-box;
+    margin-top: 0.85rem;
 }
 
-.clean-btn-submit:hover {
-    background: var(--color-primary-hover);
+[data-theme="light"] .btn-register-cta {
+    color: #2563EB !important;
+}
+
+.btn-register-cta:hover {
+    background: #2563EB;
+    color: #ffffff !important;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
     transform: translateY(-1px);
-    box-shadow: 0 4px 10px rgba(14, 165, 233, 0.35);
 }
 
-.clean-btn-submit:active {
+.btn-register-cta:active {
     transform: translateY(0);
+}
+
+.divider-with-text {
+    display: flex;
+    align-items: center;
+    margin: 1.5rem 0 0.85rem 0;
+    color: var(--color-text-muted, #94a3b8);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.divider-with-text::before,
+.divider-with-text::after {
+    content: "";
+    flex: 1;
+    border-bottom: 1px solid var(--color-border, #334155);
+}
+
+.divider-with-text span {
+    padding: 0 0.75rem;
 }
 
 /* Alert */
 .clean-alert {
-    padding: 0.75rem 0.9rem;
-    border-radius: 8px;
-    margin-bottom: 1.25rem;
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    margin-bottom: 1.35rem;
     display: flex;
     align-items: flex-start;
-    gap: 0.5rem;
-    font-size: 0.8125rem;
-    background: rgba(220, 38, 38, 0.08);
-    border: 1px solid rgba(220, 38, 38, 0.2);
-    color: #DC2626;
+    gap: 0.6rem;
+    font-size: 0.85rem;
+    background: rgba(220, 38, 38, 0.12);
+    border: 1px solid rgba(220, 38, 38, 0.3);
+    color: #F87171;
 }
 
-[data-theme="dark"] .clean-alert {
-    color: #F87171;
-    background: rgba(248, 113, 113, 0.1);
-    border-color: rgba(248, 113, 113, 0.25);
+[data-theme="light"] .clean-alert {
+    background: #FEF2F2;
+    border-color: #FCA5A5;
+    color: #DC2626;
 }
 
 /* Minimal Footer */
 .clean-login-footer {
-    margin-top: 1.5rem;
-    font-size: 0.75rem;
-    color: var(--color-text-muted);
+    margin-top: 1.75rem;
+    font-size: 0.8rem;
+    color: var(--color-text-muted, #94a3b8);
     text-align: center;
 }
 </style>
@@ -308,20 +368,20 @@ body.public-layout {
 <div class="clean-login-card">
     <div class="clean-login-header">
         <div class="clean-logo-badge">
-            <i class="ti ti-chart-dots-3"></i>
+            <img src="<?= url('assets/images/logo.svg') ?>" alt="DJ CRM Software" onerror="this.src='<?= url('assets/images/logo-icon.svg') ?>'">
         </div>
-        <h1 class="clean-login-title">YBT Management</h1>
-        <p class="clean-login-subtitle">Sign in to your account</p>
+        <h1 class="clean-login-title">DJ CRM Software</h1>
+        <p class="clean-login-subtitle">Sign in to your business workspace</p>
     </div>
 
     <?php if (!empty($error)): ?>
         <div class="clean-alert">
-            <i class="ti ti-alert-circle" style="font-size: 1.1rem; margin-top: 0.1rem;"></i>
+            <i class="ti ti-alert-circle" style="font-size: 1.2rem; margin-top: 0.05rem;"></i>
             <div style="flex: 1;">
                 <div><?= e($error) ?></div>
                 <?php if (!empty($pendingVerificationEmail)): ?>
                     <div style="margin-top: 0.6rem;">
-                        <a href="<?= url('verify-email.php?email=' . urlencode($pendingVerificationEmail)) ?>" class="btn btn-sm btn-primary" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; padding: 0.3rem 0.75rem;">
+                        <a href="<?= url('verify-email.php?email=' . urlencode($pendingVerificationEmail)) ?>" class="btn-solid-primary" style="height: 34px; font-size: 0.8rem; padding: 0 0.85rem; display: inline-flex; width: auto;">
                             <i class="ti ti-shield-check"></i> Enter 6-Digit Verification Code
                         </a>
                     </div>
@@ -362,22 +422,27 @@ body.public-layout {
                 <input type="checkbox" name="remember" checked>
                 <span>Remember me</span>
             </label>
-            <a href="<?= url('forgot-password.php') ?>" style="color: var(--color-primary); text-decoration: none; font-size: 0.8125rem;">Forgot password?</a>
+            <a href="<?= url('forgot-password.php') ?>" style="color: #38BDF8; text-decoration: none; font-size: 0.85rem; font-weight: 500;">Forgot password?</a>
         </div>
 
-        <button type="submit" class="clean-btn-submit" id="btn-submit">
+        <button type="submit" class="btn-solid-primary" id="btn-submit">
             <span>Sign In</span>
             <i class="ti ti-arrow-right"></i>
         </button>
     </form>
 
-    <div style="text-align: center; margin-top: 1.5rem; font-size: 0.85rem; color: var(--color-text-muted);">
-        Don't have an account? <a href="<?= url('register.php') ?>" style="color: var(--color-primary); text-decoration: none; font-weight: 600;">Register your business</a>
+    <div class="divider-with-text">
+        <span>New to DJ CRM?</span>
     </div>
+
+    <a href="<?= url('register.php') ?>" class="btn-register-cta" id="btn-register-cta">
+        <i class="ti ti-building-store"></i>
+        <span>Register New Business Account</span>
+    </a>
 </div>
 
 <div class="clean-login-footer">
-    &copy; <?= date('Y') ?> <?= e(APP_NAME) ?> &bull; Multi-Business MIS
+    &copy; <?= date('Y') ?> <?= e(APP_NAME) ?> &bull; Multi-Business CRM & MIS
 </div>
 
 <script>

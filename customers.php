@@ -16,6 +16,44 @@ Permissions::require('customers.view');
 $businessId = Auth::businessId();
 $userId = Auth::id();
 
+// Real-Time Customer Duplicate Check (AJAX)
+if (isset($_GET['action']) && $_GET['action'] === 'check_duplicate') {
+    header('Content-Type: application/json');
+    $qPhone = preg_replace('/[^0-9]/', '', $_GET['phone'] ?? '');
+    $qName = trim($_GET['name'] ?? '');
+
+    $match = null;
+    if (strlen($qPhone) >= 7) {
+        $phoneSuffix = substr($qPhone, -7);
+        $match = Database::fetch(
+            "SELECT id, name, phone, current_balance FROM customers WHERE business_id = ? AND phone LIKE ? LIMIT 1",
+            [$businessId, "%{$phoneSuffix}"]
+        );
+    }
+    if (!$match && strlen($qName) >= 3) {
+        $match = Database::fetch(
+            "SELECT id, name, phone, current_balance FROM customers WHERE business_id = ? AND LOWER(name) = LOWER(?) LIMIT 1",
+            [$businessId, $qName]
+        );
+    }
+
+    if ($match) {
+        echo json_encode([
+            'exists' => true,
+            'customer' => [
+                'id' => (int)$match['id'],
+                'name' => $match['name'],
+                'phone' => $match['phone'],
+                'balance' => (float)$match['current_balance'],
+                'ledger_url' => url('customer-view.php?id=' . $match['id'] . '&tab=khata')
+            ]
+        ]);
+    } else {
+        echo json_encode(['exists' => false]);
+    }
+    exit;
+}
+
 // Handle Customer Creation via POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_customer') {
     Permissions::require('customers.create');
@@ -26,11 +64,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if (empty($name)) {
             Flash::error('Customer name is required.');
         } else {
+            // Validate and format phone number via PhoneValidator
+            $countryCode = trim($_POST['country_code'] ?? '+92');
+            $rawPhone = trim($_POST['phone'] ?? '');
+            if ($rawPhone !== '') {
+                $phoneValidation = PhoneValidator::validate($countryCode, $rawPhone);
+                if (!$phoneValidation['valid']) {
+                    Flash::error($phoneValidation['error']);
+                    header('Location: ' . url('customers.php'));
+                    exit;
+                }
+                $_POST['phone'] = $phoneValidation['formatted'];
+            }
+
             try {
                 $newId = CustomerService::create($businessId, $_POST, $userId);
                 ActivityLog::log($businessId, $userId, 'customer_created', 'customer', $newId, "Added customer {$name}");
-                Flash::success("Customer '{$name}' created successfully with Khata initialized.");
-                header('Location: ' . url('customer-view.php?id=' . $newId));
+                Flash::success("Customer '{$name}' created successfully with Khata ledger ready.");
+                header('Location: ' . url('customer-view.php?id=' . $newId . '&tab=khata'));
                 exit;
             } catch (Exception $e) {
                 Flash::error('Failed to create customer: ' . $e->getMessage());
@@ -52,19 +103,19 @@ $customers = $result['data'];
 $totalPages = $result['total_pages'];
 $totalCount = $result['total'];
 
-$pageTitle = 'Customers Directory (کسٹمرز کھاتہ)';
+$pageTitle = 'Customers Directory';
 require YBT_ROOT . '/includes/header.php';
 ?>
 
 <div class="page-header d-flex justify-between align-center mb-4">
     <div>
-        <h1 class="page-title">Customers & Khata CRM (کسٹمرز کھاتہ)</h1>
+        <h1 class="page-title">Customers & Customer Ledger CRM</h1>
         <p class="page-subtitle">Manage customer profiles, contact directories, and live financial khata ledgers</p>
     </div>
     <div class="page-header-actions">
         <?php if (Permissions::has('customers.create')): ?>
         <button type="button" class="btn btn-primary" data-modal-target="new-customer-modal">
-            <i class="ti ti-user-plus mr-1"></i> Add Customer (نیا کسٹمر)
+            <i class="ti ti-user-plus mr-1"></i> Add Customer
         </button>
         <?php endif; ?>
     </div>
@@ -124,8 +175,8 @@ require YBT_ROOT . '/includes/header.php';
                             <th>Customer Name</th>
                             <th>Contact Info</th>
                             <th>City / Town</th>
-                            <th class="text-right">Total Invoiced (مال دیا)</th>
-                            <th class="text-right">Khata Balance (بقیہ رقم)</th>
+                            <th class="text-right">Total Invoiced</th>
+                            <th class="text-right">Ledger Balance</th>
                             <th>Status</th>
                             <th class="text-center">Actions</th>
                         </tr>
@@ -204,81 +255,221 @@ require YBT_ROOT . '/includes/header.php';
     </div>
 </div>
 
-<!-- Add Customer Modal -->
-<div class="modal-backdrop" id="new-customer-modal">
-    <div class="modal-card modal-lg">
+<!-- Simplified Add Customer Modal -->
+<div class="modal-backdrop" id="new-customer-modal" style="display: none;">
+    <div class="modal-card" style="max-width: 500px;">
         <div class="modal-header">
-            <h3 class="modal-title"><i class="ti ti-user-plus mr-1 text-primary"></i> Add New Customer & Open Khata</h3>
+            <h3 class="modal-title"><i class="ti ti-user-plus mr-1 text-primary"></i> Add Customer</h3>
             <button type="button" class="modal-close" data-modal-close aria-label="Close">&times;</button>
         </div>
-        <form action="<?= url('customers.php') ?>" method="POST">
+        <form action="<?= url('customers.php') ?>" method="POST" id="quick-customer-form">
             <?= Csrf::field() ?>
             <input type="hidden" name="action" value="create_customer">
 
             <div class="modal-body">
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div class="form-group">
-                        <label class="form-label required">Customer / Shop Name</label>
-                        <input type="text" name="name" class="form-input" placeholder="e.g. Tariq Mehmood" required autofocus>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Company / Shop Trade Name</label>
-                        <input type="text" name="company_name" class="form-input" placeholder="e.g. Al-Madina Telecom">
-                    </div>
-                </div>
+                <p class="text-xs text-muted mb-3">Enter Customer Name and Mobile Number to immediately create and open their Khata ledger.</p>
 
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div class="form-group">
-                        <label class="form-label required">Mobile Phone (+92 / Local)</label>
-                        <input type="text" name="phone" class="form-input" placeholder="+92 300 1234567" required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Email Address</label>
-                        <input type="email" name="email" class="form-input" placeholder="customer@example.com">
-                    </div>
-                </div>
-
-                <!-- Opening Balance Khata Initializer -->
-                <div class="p-3 bg-subtle rounded mb-3">
-                    <div class="grid grid-cols-2 gap-3">
-                        <div class="form-group">
-                            <label class="form-label font-bold">Opening Balance (ابتدائی بقایا)</label>
-                            <input type="number" step="0.01" min="0" name="opening_balance" class="form-input" placeholder="0.00">
-                            <div class="text-xs text-muted mt-1">Leave 0 if starting fresh with zero balance.</div>
+                <!-- Duplicate Customer Warning Box (Live search result) -->
+                <div id="duplicate-warning" class="p-3 mb-3 rounded" style="display: none; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
+                    <div class="d-flex align-center justify-between gap-2">
+                        <div>
+                            <div class="font-bold text-sm text-warning d-flex align-center gap-1">
+                                <i class="ti ti-alert-triangle"></i> Customer Already Exists!
+                            </div>
+                            <div class="text-xs text-muted mt-1" id="duplicate-details"></div>
                         </div>
-                        <div class="form-group">
-                            <label class="form-label font-bold">Balance Type (قسم)</label>
-                            <select name="opening_balance_type" class="form-select">
-                                <option value="debit" selected>Customer Owes (آپ نے لینے ہیں - Debit)</option>
-                                <option value="credit">Customer Advance (کسٹمر کی امانت - Credit)</option>
-                            </select>
-                            <div class="text-xs text-muted mt-1">Debit = Customer dues, Credit = Advance balance.</div>
-                        </div>
+                        <a href="#" id="duplicate-ledger-btn" class="btn btn-warning btn-sm font-bold flex-shrink-0">
+                            <i class="ti ti-notebook mr-1"></i> Open Ledger
+                        </a>
                     </div>
                 </div>
 
                 <div class="form-group mb-3">
-                    <label class="form-label">Address & City</label>
-                    <input type="text" name="billing_address_line1" class="form-input mb-2" placeholder="Shop #, Plaza, Market / Street address">
-                    <div class="grid grid-cols-3 gap-2">
-                        <input type="text" name="billing_city" class="form-input" placeholder="City (e.g. Lahore)">
-                        <input type="text" name="billing_state" class="form-input" placeholder="Province / State (e.g. Punjab)">
-                        <input type="text" name="billing_postal_code" class="form-input" placeholder="Postal Code">
-                    </div>
+                    <label class="form-label required font-bold">Customer Name *</label>
+                    <input type="text" name="name" id="cust-name-input" class="form-input form-input-lg" placeholder="e.g. Tariq Mehmood" required autofocus autocomplete="off">
                 </div>
 
-                <div class="form-group">
-                    <label class="form-label">Internal Notes / Ledger Remarks</label>
-                    <textarea name="notes" class="form-input" rows="2" placeholder="Credit limit, repair terms, reference notes..."></textarea>
+                <div class="form-group mb-3">
+                    <label class="form-label required font-bold">Mobile Number *</label>
+                    <div class="d-flex gap-2">
+                        <select name="country_code" id="cust-country-code" class="form-select" style="width: 170px; flex-shrink: 0;">
+                            <option value="+92" selected>🇵🇰 Pakistan (+92)</option>
+                            <option value="+971">🇦🇪 UAE (+971)</option>
+                            <option value="+966">🇸🇦 Saudi Arabia (+966)</option>
+                            <option value="+974">🇶🇦 Qatar (+974)</option>
+                            <option value="+968">🇴🇲 Oman (+968)</option>
+                            <option value="+965">🇰🇼 Kuwait (+965)</option>
+                            <option value="+973">🇧🇭 Bahrain (+973)</option>
+                            <option value="+44">🇬🇧 United Kingdom (+44)</option>
+                            <option value="+1">🇺🇸 United States (+1)</option>
+                            <option value="+1">🇨🇦 Canada (+1)</option>
+                            <option value="+91">🇮🇳 India (+91)</option>
+                            <option value="+880">🇧🇩 Bangladesh (+880)</option>
+                            <option value="+93">🇦🇫 Afghanistan (+93)</option>
+                            <option value="+90">🇹🇷 Turkey (+90)</option>
+                            <option value="+86">🇨🇳 China (+86)</option>
+                            <option value="+60">🇲🇾 Malaysia (+60)</option>
+                            <option value="+65">🇸🇬 Singapore (+65)</option>
+                            <option value="+61">🇦🇺 Australia (+61)</option>
+                            <option value="+49">🇩🇪 Germany (+49)</option>
+                            <option value="+33">🇫🇷 France (+33)</option>
+                            <option value="+39">🇮🇹 Italy (+39)</option>
+                            <option value="+34">🇪🇸 Spain (+34)</option>
+                            <option value="+31">🇳🇱 Netherlands (+31)</option>
+                            <option value="+46">🇸🇪 Sweden (+46)</option>
+                            <option value="+41">🇨🇭 Switzerland (+41)</option>
+                            <option value="+47">🇳🇴 Norway (+47)</option>
+                            <option value="+45">🇩🇰 Denmark (+45)</option>
+                            <option value="+353">🇮🇪 Ireland (+353)</option>
+                            <option value="+64">🇳🇿 New Zealand (+64)</option>
+                            <option value="+27">🇿🇦 South Africa (+27)</option>
+                            <option value="+20">🇪🇬 Egypt (+20)</option>
+                            <option value="+234">🇳🇬 Nigeria (+234)</option>
+                            <option value="+254">🇰🇪 Kenya (+254)</option>
+                            <option value="+94">🇱🇰 Sri Lanka (+94)</option>
+                            <option value="+977">🇳🇵 Nepal (+977)</option>
+                            <option value="+81">🇯🇵 Japan (+81)</option>
+                            <option value="+82">🇰🇷 South Korea (+82)</option>
+                            <option value="+62">🇮🇩 Indonesia (+62)</option>
+                            <option value="+66">🇹🇭 Thailand (+66)</option>
+                            <option value="+55">🇧🇷 Brazil (+55)</option>
+                            <option value="+52">🇲🇽 Mexico (+52)</option>
+                            <option value="+98">🇮🇷 Iran (+98)</option>
+                            <option value="+964">🇮🇶 Iraq (+964)</option>
+                            <option value="+962">🇯🇴 Jordan (+962)</option>
+                            <option value="+961">🇱🇧 Lebanon (+961)</option>
+                            <option value="+967">🇾🇪 Yemen (+967)</option>
+                            <option value="+7">🇷🇺 Russia (+7)</option>
+                        </select>
+                        <input type="tel" name="phone" id="cust-phone-input" class="form-input form-input-lg flex-1" placeholder="03001234567" maxlength="11" required autocomplete="off">
+                    </div>
+                    <div class="text-xs text-muted mt-1" id="cust-phone-hint">Exclusively 11 digits starting with 03 (e.g. 03001234567).</div>
                 </div>
+
+                <!-- Collapsible optional details for advanced info -->
+                <details class="mt-2 text-xs">
+                    <summary class="text-muted cursor-pointer font-medium p-1">
+                        <i class="ti ti-chevron-down mr-1"></i> Optional: Trade Name, City, or Opening Balance
+                    </summary>
+                    <div class="p-3 bg-subtle rounded mt-2">
+                        <div class="form-group mb-2">
+                            <label class="form-label">Shop / Trade Name</label>
+                            <input type="text" name="company_name" class="form-input" placeholder="e.g. Al-Madina Telecom">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 mb-2">
+                            <div class="form-group">
+                                <label class="form-label">City</label>
+                                <input type="text" name="billing_city" class="form-input" placeholder="e.g. Lahore">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Opening Balance</label>
+                                <input type="number" step="0.01" min="0" name="opening_balance" class="form-input" placeholder="0.00">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Balance Type</label>
+                            <select name="opening_balance_type" class="form-select">
+                                <option value="debit" selected>Customer Owes (Debit)</option>
+                                <option value="credit">Customer Advance (Credit)</option>
+                            </select>
+                        </div>
+                    </div>
+                </details>
             </div>
 
-            <div class="modal-footer d-flex justify-end gap-2">
+            <div class="modal-footer d-flex justify-between align-center">
                 <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
-                <button type="submit" class="btn btn-primary"><i class="ti ti-check mr-1"></i> Save Customer & Khata</button>
+                <button type="submit" class="btn btn-primary font-bold">
+                    <i class="ti ti-arrow-right mr-1"></i> Continue to Ledger
+                </button>
             </div>
         </form>
     </div>
 </div>
+
+<script>
+(function() {
+    var nameInput = document.getElementById('cust-name-input');
+    var phoneInput = document.getElementById('cust-phone-input');
+    var warnBox = document.getElementById('duplicate-warning');
+    var warnDetails = document.getElementById('duplicate-details');
+    var warnBtn = document.getElementById('duplicate-ledger-btn');
+    var timer = null;
+
+    function checkCustomerDuplicate() {
+        clearTimeout(timer);
+        timer = setTimeout(function() {
+            var name = nameInput ? nameInput.value.trim() : '';
+            var phone = phoneInput ? phoneInput.value.trim() : '';
+
+            if (phone.length < 5 && name.length < 3) {
+                if (warnBox) warnBox.style.display = 'none';
+                return;
+            }
+
+            var checkUrl = '<?= url("customers.php") ?>?action=check_duplicate&name=' + encodeURIComponent(name) + '&phone=' + encodeURIComponent(phone);
+            fetch(checkUrl)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data && data.exists && data.customer) {
+                        var c = data.customer;
+                        var bal = parseFloat(c.balance || 0);
+                        var balStr = bal > 0 ? ('Customer Owes Rs. ' + bal.toLocaleString()) : (bal < 0 ? ('Advance Rs. ' + Math.abs(bal).toLocaleString()) : 'Cleared (Rs. 0)');
+                        warnDetails.textContent = c.name + ' (' + (c.phone || 'No phone') + ') — Balance: ' + balStr;
+                        warnBtn.href = c.ledger_url;
+                        warnBox.style.display = 'block';
+                    } else {
+                        warnBox.style.display = 'none';
+                    }
+                })
+                .catch(function() {});
+        }, 300);
+    }
+
+    if (nameInput) nameInput.addEventListener('input', checkCustomerDuplicate);
+    if (phoneInput) phoneInput.addEventListener('input', checkCustomerDuplicate);
+
+    // Dynamic country and phone formatting in Add Customer modal
+    var countrySelect = document.querySelector('select[name="country_code"]');
+    var phoneHint = document.getElementById('cust-phone-hint');
+    var countryMeta = typeof countryMetadata !== 'undefined' ? countryMetadata : (<?= PhoneValidator::getCountriesJson() ?>);
+
+    function onCustomerCountryChange() {
+        if (!countrySelect || !phoneInput) return;
+        var code = countrySelect.value;
+        var matched = null;
+        for (var k in countryMeta) {
+            if (countryMeta[k].code === code) {
+                matched = countryMeta[k];
+                break;
+            }
+        }
+        if (matched) {
+            phoneInput.placeholder = matched.placeholder || 'Phone number';
+            phoneInput.maxLength = matched.max_len || 15;
+            if (phoneHint) phoneHint.textContent = matched.hint || '';
+        } else {
+            phoneInput.placeholder = 'Phone number';
+            phoneInput.maxLength = 15;
+            if (phoneHint) phoneHint.textContent = 'Enter international contact number';
+        }
+    }
+
+    if (countrySelect) {
+        countrySelect.addEventListener('change', onCustomerCountryChange);
+    }
+
+    if (phoneInput) {
+        phoneInput.addEventListener('input', function() {
+            var code = countrySelect ? countrySelect.value : '+92';
+            if (code === '+92') {
+                var digits = this.value.replace(/[^0-9]/g, '');
+                if (digits.length > 11) digits = digits.substring(0, 11);
+                this.value = digits;
+            }
+        });
+    }
+})();
+</script>
 
 <?php require YBT_ROOT . '/includes/footer.php'; ?>

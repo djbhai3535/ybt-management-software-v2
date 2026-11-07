@@ -229,6 +229,11 @@ $whatsAppUrl = WhatsAppService::getClickToChatUrl($invoice, $business, url('invo
 <div class="receipt-container">
     <!-- Header -->
     <div class="text-center">
+        <?php 
+        $shopLogo = $business['logo_url'] ?? $business['logo_path'] ?? null;
+        if (!empty($shopLogo) && file_exists(YBT_ROOT . '/' . ltrim($shopLogo, '/'))): ?>
+            <div style="margin-bottom: 4px;"><img src="<?= url($shopLogo) ?>" alt="Logo" style="max-height: 44px; max-width: 140px; object-fit: contain;"></div>
+        <?php endif; ?>
         <div class="shop-title"><?= e($business['name']) ?></div>
         <?php if (!empty($business['tagline'])): ?>
             <div style="font-size: 10px;"><?= e($business['tagline']) ?></div>

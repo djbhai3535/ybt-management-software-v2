@@ -1,0 +1,53 @@
+# ============================================================
+# DJ CRM Software — Hostinger Production LiteSpeed / Apache Configuration
+# Target Domain: apkashow.com
+# Version: 5.1.0
+# ============================================================
+
+# 1. Prevent Directory Indexing & Server Signature Exposure
+Options -Indexes
+ServerSignature Off
+
+# 2. Character Encoding
+AddDefaultCharset UTF-8
+
+# 3. Rewrite Engine & Header Preservation
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # CRITICAL: Preserve Authorization Header for Desktop & Mobile REST API Sync
+    # LiteSpeed / Apache strips HTTP_AUTHORIZATION by default on PHP-FPM
+    RewriteCond %{HTTP:Authorization} ^(.*)
+    RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
+
+    # Optional: Force HTTPS
+    RewriteCond %{HTTPS} off
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+# 4. STRICT SECURITY: Deny Direct Browser Access to Sensitive Files
+<FilesMatch "^(\.env|\.git|\.sqlite|\.sql|composer\.(json|lock)|package\.(json|lock))$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# 5. STRICT SECURITY: Deny Direct Access to System & Internal Directories
+RedirectMatch 403 ^/storage/(backups|logs|desktop)/.*$
+RedirectMatch 403 ^/config/.*$
+RedirectMatch 403 ^/database/.*$
+RedirectMatch 403 ^/\.git/.*$
+
+# 6. Upload Limits & PHP Settings (if supported by SAPI)
+<IfModule mod_php.c>
+    php_value upload_max_filesize 20M
+    php_value post_max_size 25M
+    php_value max_execution_time 120
+    php_value max_input_time 120
+    php_value memory_limit 256M
+</IfModule>

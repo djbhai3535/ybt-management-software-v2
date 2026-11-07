@@ -1,6 +1,6 @@
 <?php
 /**
- * YBT Management Software — Page Footer
+ * DJ CRM Software — Page Footer
  * Closes layouts and loads scripts
  */
 if (!defined('YBT_ROOT')) exit;
@@ -40,5 +40,14 @@ $isPublicPage = $isPublicPage ?? false;
     <?php endforeach; ?>
 <?php endif; ?>
 
+<!-- Floating WhatsApp Support Button -->
+<a href="https://wa.me/<?= e(WHATSAPP_SUPPORT_NUMBER) ?>?text=<?= urlencode('Hello DJ CRM Support, I need assistance with my software.') ?>" 
+   target="_blank" 
+   class="floating-whatsapp-btn" 
+   title="Chat with DJ CRM Support on WhatsApp"
+   aria-label="Chat on WhatsApp"
+   style="position: fixed; bottom: 20px; right: 20px; z-index: 998; width: 48px; height: 48px; border-radius: 50%; background: #25D366; color: #FFFFFF; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(37, 211, 102, 0.4); text-decoration: none; font-size: 1.6rem; transition: transform 0.2s ease, box-shadow 0.2s ease;">
+    <i class="ti ti-brand-whatsapp"></i>
+</a>
 </body>
 </html>

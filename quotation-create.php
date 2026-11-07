@@ -78,11 +78,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'business_id' => $businessId,
                     'customer_id' => $customerId,
                     'quotation_number' => $qNum,
+                    'issue_date' => $qDate,
                     'quotation_date' => $qDate,
+                    'valid_until' => $validityDate,
                     'validity_date' => $validityDate,
                     'subtotal' => $subtotal,
+                    'discount_amount' => 0.00,
                     'discount_total' => 0.00,
+                    'tax_amount' => $taxTotal,
                     'tax_total' => $taxTotal,
+                    'total_amount' => $grandTotal,
                     'grand_total' => $grandTotal,
                     'notes' => trim($_POST['notes'] ?? ''),
                     'terms' => trim($_POST['terms'] ?? $business['default_terms'] ?? ''),
@@ -92,6 +97,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 foreach ($processed as $row) {
                     $row['quotation_id'] = $qId;
+                    $row['item_name'] = $row['description'];
+                    $row['item_description'] = $row['description'];
+                    $row['total_amount'] = $row['line_total'];
                     Database::insert('quotation_items', $row);
                 }
 

@@ -9,23 +9,23 @@ class ReportService {
      * Get high-level executive financial metrics
      */
     public static function getExecutiveSummary(int $businessId): array {
-        // Total Invoiced & Total Collected
+        // Total Invoiced & Total Collected (Clean schema canonical columns)
         $invStats = Database::fetch(
             "SELECT 
-                COALESCE(SUM(grand_total), 0) as total_invoiced,
-                COALESCE(SUM(amount_paid), 0) as total_collected,
-                COALESCE(SUM(outstanding), 0) as total_outstanding,
+                COALESCE(SUM(total_amount), 0) as total_invoiced,
+                COALESCE(SUM(paid_amount), 0) as total_collected,
+                COALESCE(SUM(balance_amount), 0) as total_outstanding,
                 COUNT(*) as total_invoices
              FROM invoices 
              WHERE business_id = ? AND status != 'void'",
             [$businessId]
         );
 
-        // Total Expenses
+        // Total Expenses (Clean schema uses is_deleted flag)
         $expStats = Database::fetch(
             "SELECT COALESCE(SUM(amount), 0) as total_expenses, COUNT(*) as expense_count
              FROM expenses 
-             WHERE business_id = ? AND status = 'active'",
+             WHERE business_id = ? AND is_deleted = 0",
             [$businessId]
         );
 
@@ -70,7 +70,7 @@ class ReportService {
             );
 
             $expRow = Database::fetch(
-                "SELECT COALESCE(SUM(amount), 0) as exp FROM expenses WHERE business_id = ? AND expense_date BETWEEN ? AND ? AND status = 'active'",
+                "SELECT COALESCE(SUM(amount), 0) as exp FROM expenses WHERE business_id = ? AND expense_date BETWEEN ? AND ? AND is_deleted = 0",
                 [$businessId, $monthStart, $monthEnd]
             );
 
@@ -91,8 +91,8 @@ class ReportService {
     public static function getTopCustomers(int $businessId, int $limit = 5): array {
         return Database::fetchAll(
             "SELECT c.id, c.name, c.company_name, 
-                    COALESCE(SUM(i.grand_total), 0) as total_billed,
-                    COALESCE(SUM(i.amount_paid), 0) as total_paid
+                    COALESCE(SUM(i.total_amount), 0) as total_billed,
+                    COALESCE(SUM(i.paid_amount), 0) as total_paid
              FROM customers c
              JOIN invoices i ON c.id = i.customer_id
              WHERE c.business_id = ? AND i.status != 'void'
@@ -109,11 +109,18 @@ class ReportService {
     public static function getGstReport(int $businessId, string $startDate, string $endDate): array {
         return Database::fetchAll(
             "SELECT 
-                invoice_number, invoice_date, place_of_supply,
-                subtotal, cgst_total, sgst_total, igst_total, tax_total, grand_total
+                invoice_number, 
+                issue_date as invoice_date, 
+                '' as place_of_supply,
+                subtotal, 
+                0.00 as cgst_total, 
+                0.00 as sgst_total, 
+                0.00 as igst_total, 
+                tax_amount as tax_total, 
+                total_amount as grand_total
              FROM invoices
-             WHERE business_id = ? AND invoice_date BETWEEN ? AND ? AND status != 'void'
-             ORDER BY invoice_date ASC",
+             WHERE business_id = ? AND issue_date BETWEEN ? AND ? AND status != 'void'
+             ORDER BY issue_date ASC",
             [$businessId, $startDate, $endDate]
         );
     }

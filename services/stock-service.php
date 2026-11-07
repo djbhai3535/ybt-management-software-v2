@@ -53,9 +53,14 @@ class StockService {
         ?int $refId = null,
         ?string $refNum = null,
         ?string $notes = null,
-        ?int $userId = null
+        ?int $userId = null,
+        ?string $idempotencyKey = null,
+        ?string $uuid = null
     ): int {
-        return Database::insert('stock_movements', [
+        $movementUuid = $uuid ?: generateUuidV4();
+        $idempKey = $idempotencyKey ?: "stock_mov_{$businessId}_{$productId}_" . bin2hex(random_bytes(8));
+
+        $movementId = Database::insert('stock_movements', [
             'business_id' => $businessId,
             'product_id' => $productId,
             'type' => $type,
@@ -68,8 +73,51 @@ class StockService {
             'notes' => $notes,
             'created_by' => $userId,
             'created_at' => date('Y-m-d H:i:s'),
-            'sync_uuid' => generateUuidV4()
+            'sync_uuid' => $movementUuid,
+            'uuid' => $movementUuid,
+            'idempotency_key' => $idempKey,
+            'sync_status' => 'pending',
+            'sync_version' => 1
         ]);
+
+        // Auto-enqueue into pending_operations for cloud sync
+        try {
+            $productUuid = Database::fetchColumn("SELECT uuid FROM products WHERE id = ? AND business_id = ?", [$productId, $businessId]);
+            $deviceId = $_SERVER['HTTP_X_DEVICE_ID'] ?? (getenv('YBT_DEVICE_ID') ?: 'desktop-default');
+            $queuePayload = [
+                'movement_uuid' => $movementUuid,
+                'product_id' => $productId,
+                'product_uuid' => $productUuid ?: null,
+                'type' => $type,
+                'quantity' => $quantity,
+                'quantity_before' => $qtyBefore,
+                'quantity_after' => $qtyAfter,
+                'reference_type' => $refType,
+                'reference_id' => $refId,
+                'reference_number' => $refNum,
+                'notes' => $notes,
+                'idempotency_key' => $idempKey,
+                'created_at' => date('Y-m-d H:i:s'),
+                'created_by' => $userId
+            ];
+
+            Database::insert('pending_operations', [
+                'operation_uuid' => generateUuidV4(),
+                'business_id' => $businessId,
+                'device_id' => $deviceId,
+                'entity_type' => 'stock_movements',
+                'entity_uuid' => $movementUuid,
+                'operation_type' => 'insert',
+                'payload_json' => json_encode($queuePayload),
+                'retry_count' => 0,
+                'status' => 'pending',
+                'created_at' => date('Y-m-d H:i:s')
+            ]);
+        } catch (\Throwable $qe) {
+            error_log("Non-blocking: Failed to enqueue stock movement sync: " . $qe->getMessage());
+        }
+
+        return $movementId;
     }
 
     /**
@@ -84,14 +132,15 @@ class StockService {
         ?int $userId = null,
         ?string $refType = null,
         ?int $refId = null,
-        ?string $refNum = null
+        ?string $refNum = null,
+        ?string $idempotencyKey = null
     ): array {
         $db = Database::getInstance();
         $startedTx = self::beginTx($db);
 
         try {
             $product = Database::fetch(
-                "SELECT id, name, stock_quantity, allow_negative_stock FROM products WHERE id = ? AND business_id = ?",
+                "SELECT id, uuid, sync_uuid, name, stock_quantity, allow_negative_stock FROM products WHERE id = ? AND business_id = ?",
                 [$productId, $businessId]
             );
 
@@ -110,11 +159,11 @@ class StockService {
             }
 
             Database::query(
-                "UPDATE products SET stock_quantity = ?, updated_at = datetime('now') WHERE id = ?",
+                "UPDATE products SET stock_quantity = ?, sync_status = 'pending', sync_version = sync_version + 1, updated_at = datetime('now') WHERE id = ?",
                 [$newStock, $productId]
             );
 
-            self::recordMovement(
+            $movementId = self::recordMovement(
                 $businessId,
                 $productId,
                 $type,
@@ -125,13 +174,15 @@ class StockService {
                 $refId,
                 $refNum,
                 $reason,
-                $userId
+                $userId,
+                $idempotencyKey
             );
 
             self::commitTx($db, $startedTx);
 
             return [
                 'success' => true,
+                'movement_id' => $movementId,
                 'product_id' => $productId,
                 'product_name' => $product['name'],
                 'quantity_before' => $currentStock,

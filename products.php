@@ -40,7 +40,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (empty($name)) {
                 Flash::error('Product / Part name is required.');
             } else {
+                $prodUuid = generateUuidV4();
                 $newId = Database::insert('products', [
+                    'uuid' => $prodUuid,
+                    'sync_uuid' => $prodUuid,
                     'business_id' => $businessId,
                     'name' => $name,
                     'brand' => $brand ?: null,
@@ -59,8 +62,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'allow_negative_stock' => $allowNegative,
                     'description' => $description ?: null,
                     'status' => 'active',
+                    'sync_status' => 'pending',
+                    'sync_version' => 1,
                     'created_by' => $userId
                 ]);
+
+                // Auto-enqueue product creation into pending_operations for cloud sync
+                try {
+                    $deviceId = $_SERVER['HTTP_X_DEVICE_ID'] ?? (getenv('YBT_DEVICE_ID') ?: 'desktop-default');
+                    $prodPayload = [
+                        'uuid' => $prodUuid,
+                        'name' => $name,
+                        'brand' => $brand,
+                        'model' => $model,
+                        'part_type' => $partType,
+                        'category' => $partType,
+                        'sku' => $sku,
+                        'barcode' => $barcode,
+                        'unit' => $unit,
+                        'selling_price' => $sellingPrice,
+                        'cost_price' => $purchasePrice,
+                        'purchase_price' => $purchasePrice,
+                        'stock_quantity' => $initialStock,
+                        'min_stock_alert' => $minStockAlert,
+                        'supplier_name' => $supplierName,
+                        'allow_negative_stock' => $allowNegative,
+                        'description' => $description
+                    ];
+
+                    Database::insert('pending_operations', [
+                        'operation_uuid' => generateUuidV4(),
+                        'business_id' => $businessId,
+                        'device_id' => $deviceId,
+                        'entity_type' => 'products',
+                        'entity_uuid' => $prodUuid,
+                        'operation_type' => 'insert',
+                        'payload_json' => json_encode($prodPayload),
+                        'retry_count' => 0,
+                        'status' => 'pending',
+                        'created_at' => date('Y-m-d H:i:s')
+                    ]);
+                } catch (\Throwable $qe) {
+                    error_log("Non-blocking: Failed to enqueue product creation: " . $qe->getMessage());
+                }
 
                 // Record initial stock movement if > 0
                 if ($initialStock > 0) {
@@ -167,9 +211,9 @@ $where = ["business_id = ?", "status = 'active'"];
 $params = [$businessId];
 
 if ($search !== '') {
-    $where[] = "(name LIKE ? OR model LIKE ? OR sku LIKE ? OR barcode LIKE ? OR supplier_name LIKE ?)";
+    $where[] = "(name LIKE ? OR model LIKE ? OR brand LIKE ? OR category LIKE ? OR part_type LIKE ? OR sku LIKE ? OR barcode LIKE ? OR supplier_name LIKE ?)";
     $term = "%{$search}%";
-    $params[] = $term; $params[] = $term; $params[] = $term; $params[] = $term; $params[] = $term;
+    $params[] = $term; $params[] = $term; $params[] = $term; $params[] = $term; $params[] = $term; $params[] = $term; $params[] = $term; $params[] = $term;
 }
 
 if ($filterBrand !== 'all' && $filterBrand !== '') {

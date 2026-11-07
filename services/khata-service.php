@@ -209,7 +209,10 @@ class KhataService {
         ?string $notes = null,
         ?string $paymentMethod = null,
         ?string $idempotencyKey = null,
-        ?int $userId = null
+        ?int $userId = null,
+        ?string $itemDetails = null,
+        ?string $imageAttachment = null,
+        ?string $voiceAttachment = null
     ): array {
         TenantContext::assertMatches($businessId);
         $db = Database::getInstance();
@@ -236,6 +239,7 @@ class KhataService {
 
             $currentBal = self::getCustomerBalance($customerId, $businessId);
             $newBal = $currentBal + $debit - $credit;
+            $ledgerSyncUuid = generateUuidV4();
 
             $ledgerId = Database::insert('customer_ledger', [
                 'uuid' => generateUuidV4(),
@@ -252,9 +256,13 @@ class KhataService {
                 'payment_method' => $paymentMethod,
                 'description' => $description,
                 'notes' => $notes,
+                'item_details' => $itemDetails,
+                'image_attachment' => $imageAttachment,
+                'voice_attachment' => $voiceAttachment,
                 'idempotency_key' => $idempotencyKey,
-                'sync_uuid' => generateUuidV4(),
+                'sync_uuid' => $ledgerSyncUuid,
                 'sync_status' => 'pending',
+                'sync_version' => 1,
                 'created_by' => $userId,
                 'created_at' => date('Y-m-d H:i:s'),
                 'updated_at' => date('Y-m-d H:i:s')
@@ -265,6 +273,45 @@ class KhataService {
                 "UPDATE customers SET current_balance = ?, updated_at = datetime('now') WHERE id = ? AND business_id = ?",
                 [$newBal, $customerId, $businessId]
             );
+
+            // Auto-enqueue for cloud synchronization into pending_operations queue
+            try {
+                $custUuid = Database::fetchColumn("SELECT uuid FROM customers WHERE id = ? AND business_id = ?", [$customerId, $businessId]);
+                $deviceId = $_SERVER['HTTP_X_DEVICE_ID'] ?? (getenv('YBT_DEVICE_ID') ?: 'desktop-default');
+                $queuePayload = [
+                    'customer_id' => $customerId,
+                    'customer_uuid' => $custUuid ?: null,
+                    'entry_type' => $entryType,
+                    'debit' => $debit,
+                    'credit' => $credit,
+                    'entry_date' => $entryDate,
+                    'reference_type' => $refType,
+                    'reference_id' => $refId,
+                    'reference_number' => $refNum,
+                    'description' => $description,
+                    'notes' => $notes,
+                    'payment_method' => $paymentMethod,
+                    'idempotency_key' => $idempotencyKey,
+                    'item_details' => $itemDetails,
+                    'image_attachment' => $imageAttachment,
+                    'voice_attachment' => $voiceAttachment
+                ];
+
+                Database::insert('pending_operations', [
+                    'operation_uuid' => generateUuidV4(),
+                    'business_id' => $businessId,
+                    'device_id' => $deviceId,
+                    'entity_type' => 'customer_ledger',
+                    'entity_uuid' => $ledgerSyncUuid,
+                    'operation_type' => 'insert',
+                    'payload_json' => json_encode($queuePayload),
+                    'retry_count' => 0,
+                    'status' => 'pending',
+                    'created_at' => date('Y-m-d H:i:s')
+                ]);
+            } catch (\Throwable $qe) {
+                error_log("Non-blocking: Failed to enqueue ledger sync operation: " . $qe->getMessage());
+            }
 
             self::commitTx($db, $startedTx);
 
@@ -290,7 +337,7 @@ class KhataService {
         TenantContext::assertMatches($businessId);
 
         $inv = Database::fetch(
-            "SELECT id, customer_id, invoice_number, invoice_date, grand_total, status FROM invoices WHERE id = ? AND business_id = ?",
+            "SELECT id, customer_id, invoice_number, issue_date as invoice_date, total_amount as grand_total, status FROM invoices WHERE id = ? AND business_id = ?",
             [$invoiceId, $businessId]
         );
 
@@ -326,7 +373,7 @@ class KhataService {
         TenantContext::assertMatches($businessId);
 
         $inv = Database::fetch(
-            "SELECT id, customer_id, invoice_number, invoice_date, grand_total FROM invoices WHERE id = ? AND business_id = ?",
+            "SELECT id, customer_id, invoice_number, issue_date as invoice_date, total_amount as grand_total FROM invoices WHERE id = ? AND business_id = ?",
             [$invoiceId, $businessId]
         );
 
@@ -353,6 +400,100 @@ class KhataService {
             null,
             $idempKey,
             $userId
+        );
+    }
+
+    /**
+     * Record You Gave (آپ نے دیے) transaction
+     * Debits customer ledger, increases balance, supports item details and attachments.
+     */
+    public static function recordYouGave(
+        int $businessId,
+        int $customerId,
+        float $amount,
+        string $entryDate,
+        string $description,
+        ?string $itemDetails = null,
+        ?string $imageAttachment = null,
+        ?string $voiceAttachment = null,
+        ?string $idempotencyKey = null,
+        ?int $userId = null
+    ): array {
+        TenantContext::assertMatches($businessId);
+        if ($amount <= 0.001) {
+            throw new InvalidArgumentException("Amount must be greater than zero.");
+        }
+        if (empty($entryDate)) {
+            $entryDate = date('Y-m-d');
+        }
+        $idempKey = $idempotencyKey ?: ("gave_" . $businessId . "_" . $customerId . "_" . microtime(true) . "_" . rand(100, 999));
+        $refNum = "GAVE-" . date('Ymd') . "-" . rand(1000, 9999);
+
+        return self::recordEntry(
+            $businessId,
+            $customerId,
+            'you_gave',
+            $amount,
+            0.0,
+            $entryDate,
+            'manual_gave',
+            null,
+            $refNum,
+            $description,
+            $itemDetails ? ("Items: " . $itemDetails) : null,
+            null,
+            $idempKey,
+            $userId,
+            $itemDetails,
+            $imageAttachment,
+            $voiceAttachment
+        );
+    }
+
+    /**
+     * Record You Got (آپ کو ملے) transaction
+     * Credits customer ledger, decreases balance, supports payment method and attachments.
+     */
+    public static function recordYouGot(
+        int $businessId,
+        int $customerId,
+        float $amount,
+        string $entryDate,
+        string $description,
+        ?string $paymentMethod = 'cash',
+        ?string $imageAttachment = null,
+        ?string $voiceAttachment = null,
+        ?string $idempotencyKey = null,
+        ?int $userId = null
+    ): array {
+        TenantContext::assertMatches($businessId);
+        if ($amount <= 0.001) {
+            throw new InvalidArgumentException("Amount must be greater than zero.");
+        }
+        if (empty($entryDate)) {
+            $entryDate = date('Y-m-d');
+        }
+        $idempKey = $idempotencyKey ?: ("got_" . $businessId . "_" . $customerId . "_" . microtime(true) . "_" . rand(100, 999));
+        $refNum = "GOT-" . date('Ymd') . "-" . rand(1000, 9999);
+
+        return self::recordEntry(
+            $businessId,
+            $customerId,
+            'you_got',
+            0.0,
+            $amount,
+            $entryDate,
+            'manual_got',
+            null,
+            $refNum,
+            $description,
+            null,
+            $paymentMethod ?: 'cash',
+            $idempKey,
+            $userId,
+            null,
+            $imageAttachment,
+            $voiceAttachment
         );
     }
 
@@ -403,11 +544,12 @@ class KhataService {
                 }
             } else {
                 // Automatic duplicate check within same minute for identical customer, amount, reference
+                $twoMinAgo = date('Y-m-d H:i:s', time() - 120);
                 $existingRecent = Database::fetch(
                     "SELECT id, payment_number FROM payments 
-                     WHERE business_id = ? AND customer_id = ? AND amount = ? AND payment_date = ? AND reference = ? 
-                       AND created_at >= datetime('now', '-2 minutes')",
-                    [$businessId, $customerId, $amount, $paymentDate, $ref]
+                     WHERE business_id = ? AND customer_id = ? AND amount = ? AND payment_date = ? AND (reference_number = ? OR reference_number = ?) 
+                       AND created_at >= ?",
+                    [$businessId, $customerId, $amount, $paymentDate, $ref, $ref, $twoMinAgo]
                 );
                 if ($existingRecent && $ref !== '') {
                     self::commitTx($db, $startedTx);
@@ -454,7 +596,7 @@ class KhataService {
             if ($specifiedInvoiceId !== null) {
                 // Allocate specifically to selected invoice
                 $inv = Database::fetch(
-                    "SELECT id, invoice_number, grand_total, outstanding FROM invoices WHERE id = ? AND business_id = ? AND customer_id = ?",
+                    "SELECT id, invoice_number, total_amount as grand_total, balance_amount as outstanding FROM invoices WHERE id = ? AND business_id = ? AND customer_id = ?",
                     [$specifiedInvoiceId, $businessId, $customerId]
                 );
                 if ($inv && $inv['outstanding'] > 0) {
@@ -470,9 +612,12 @@ class KhataService {
             } else {
                 // Allocate FIFO across unpaid/partial invoices
                 $unpaidInvoices = Database::fetchAll(
-                    "SELECT id, invoice_number, grand_total, outstanding FROM invoices 
-                     WHERE business_id = ? AND customer_id = ? AND status IN ('sent', 'partial', 'overdue', 'unpaid') AND outstanding > 0 
-                     ORDER BY invoice_date ASC, id ASC",
+                    "SELECT id, invoice_number, 
+                            total_amount as grand_total, 
+                            balance_amount as outstanding 
+                     FROM invoices 
+                     WHERE business_id = ? AND customer_id = ? AND status IN ('issued', 'partially_paid', 'sent', 'partial', 'overdue', 'unpaid') AND balance_amount > 0 
+                     ORDER BY issue_date ASC, id ASC",
                     [$businessId, $customerId]
                 );
 
@@ -564,19 +709,19 @@ class KhataService {
 
         $allocRow = Database::fetch("SELECT COALESCE(SUM(amount), 0) as total FROM payment_allocations WHERE invoice_id = ?", [$invoiceId]);
         $totalPaid = (float)($allocRow['total'] ?? 0);
-        $inv = Database::fetch("SELECT grand_total FROM invoices WHERE id = ?", [$invoiceId]);
-        $outstanding = max(0.0, (float)$inv['grand_total'] - $totalPaid);
+        $inv = Database::fetch("SELECT total_amount as grand_total FROM invoices WHERE id = ?", [$invoiceId]);
+        $outstanding = max(0.0, (float)($inv['grand_total'] ?? 0) - $totalPaid);
 
-        $newStatus = 'sent';
+        $newStatus = 'issued';
         if ($outstanding <= 0.009) {
             $newStatus = 'paid';
         } elseif ($totalPaid > 0) {
-            $newStatus = 'partial';
+            $newStatus = 'partially_paid';
         }
 
         Database::query(
-            "UPDATE invoices SET amount_paid = ?, outstanding = ?, status = ?, updated_at = datetime('now') WHERE id = ?",
-            [$totalPaid, $outstanding, $newStatus, $invoiceId]
+            "UPDATE invoices SET paid_amount = ?, balance_amount = ?, status = ?, updated_at = ? WHERE id = ?",
+            [$totalPaid, $outstanding, $newStatus, date('Y-m-d H:i:s'), $invoiceId]
         );
     }
 

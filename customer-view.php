@@ -24,6 +24,115 @@ if ($customerId <= 0) {
     exit;
 }
 
+function handleKhataFileUpload(string $fileKey, string $type = 'image'): ?string {
+    if (empty($_FILES[$fileKey]) || !isset($_FILES[$fileKey]['error']) || $_FILES[$fileKey]['error'] !== UPLOAD_ERR_OK) {
+        return null;
+    }
+    $file = $_FILES[$fileKey];
+    $uploadDir = YBT_ROOT . '/storage/uploads/khata';
+    if (!is_dir($uploadDir)) {
+        @mkdir($uploadDir, 0777, true);
+    }
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    $allowed = ($type === 'image')
+        ? ['jpg', 'jpeg', 'png', 'webp', 'gif']
+        : ['mp3', 'wav', 'ogg', 'm4a', 'webm', 'aac', '3gp'];
+
+    if (!in_array($ext, $allowed, true)) {
+        return null;
+    }
+    $filename = 'khata_' . $type . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+    $dest = $uploadDir . '/' . $filename;
+    if (move_uploaded_file($file['tmp_name'], $dest)) {
+        return 'storage/uploads/khata/' . $filename;
+    }
+    return null;
+}
+
+// 0a. Handle You Gave POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'record_you_gave') {
+    Permissions::require('customers.edit');
+    if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
+        Flash::error('Invalid security token. Please refresh and try again.');
+    } else {
+        $amount = (float)($_POST['amount'] ?? 0);
+        $entryDate = !empty($_POST['entry_date']) ? trim($_POST['entry_date']) : date('Y-m-d');
+        $description = trim($_POST['description'] ?? 'Items / Cash Given');
+        $itemDetails = trim($_POST['item_details'] ?? '');
+        $idempKey = trim($_POST['idempotency_key'] ?? '');
+
+        if ($amount <= 0.001) {
+            Flash::error('Please enter a valid amount greater than zero.');
+        } else {
+            try {
+                $imagePath = handleKhataFileUpload('image_attachment', 'image');
+                $voicePath = handleKhataFileUpload('voice_attachment', 'audio');
+
+                $res = KhataService::recordYouGave(
+                    $businessId,
+                    $customerId,
+                    $amount,
+                    $entryDate,
+                    $description,
+                    $itemDetails ?: null,
+                    $imagePath,
+                    $voicePath,
+                    $idempKey ?: null,
+                    $userId
+                );
+
+                Flash::success("Recorded You Gave: " . formatCurrency($amount) . ". New Balance: " . formatCurrency(abs($res['running_balance'])) . " (" . ($res['running_balance'] > 0 ? 'Dr' : 'Cr') . ")");
+                header('Location: ' . url('customer-view.php?id=' . $customerId . '&tab=khata'));
+                exit;
+            } catch (Exception $e) {
+                Flash::error('Error recording transaction: ' . $e->getMessage());
+            }
+        }
+    }
+}
+
+// 0b. Handle You Got POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'record_you_got') {
+    Permissions::require('payments.record');
+    if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
+        Flash::error('Invalid security token. Please refresh and try again.');
+    } else {
+        $amount = (float)($_POST['amount'] ?? 0);
+        $entryDate = !empty($_POST['entry_date']) ? trim($_POST['entry_date']) : date('Y-m-d');
+        $description = trim($_POST['description'] ?? 'Payment Received');
+        $paymentMethod = trim($_POST['payment_method'] ?? 'cash');
+        $idempKey = trim($_POST['idempotency_key'] ?? '');
+
+        if ($amount <= 0.001) {
+            Flash::error('Please enter a valid amount greater than zero.');
+        } else {
+            try {
+                $imagePath = handleKhataFileUpload('image_attachment', 'image');
+                $voicePath = handleKhataFileUpload('voice_attachment', 'audio');
+
+                $res = KhataService::recordYouGot(
+                    $businessId,
+                    $customerId,
+                    $amount,
+                    $entryDate,
+                    $description,
+                    $paymentMethod,
+                    $imagePath,
+                    $voicePath,
+                    $idempKey ?: null,
+                    $userId
+                );
+
+                Flash::success("Recorded You Got: " . formatCurrency($amount) . ". New Balance: " . formatCurrency(abs($res['running_balance'])) . " (" . ($res['running_balance'] > 0 ? 'Dr' : 'Cr') . ")");
+                header('Location: ' . url('customer-view.php?id=' . $customerId . '&tab=khata'));
+                exit;
+            } catch (Exception $e) {
+                Flash::error('Error recording collection: ' . $e->getMessage());
+            }
+        }
+    }
+}
+
 // 1. Handle Receive Khata Payment POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'record_khata_payment') {
     Permissions::require('payments.record');
@@ -67,6 +176,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
         Flash::error('Invalid security token.');
     } else {
+        $name = trim($_POST['name'] ?? '');
+        if (empty($name)) {
+            Flash::error('Customer name is required.');
+            header('Location: ' . url('customer-view.php?id=' . $customerId));
+            exit;
+        }
+
+        $countryCode = trim($_POST['country_code'] ?? '+92');
+        $rawPhone = trim($_POST['phone'] ?? '');
+        if ($rawPhone !== '') {
+            $phoneValidation = PhoneValidator::validate($countryCode, $rawPhone);
+            if (!$phoneValidation['valid']) {
+                Flash::error($phoneValidation['error']);
+                header('Location: ' . url('customer-view.php?id=' . $customerId));
+                exit;
+            }
+            $_POST['phone'] = $phoneValidation['formatted'];
+        }
+
         CustomerService::update($customerId, $businessId, $_POST);
         ActivityLog::log($businessId, $userId, 'customer_updated', 'customer', $customerId, "Updated profile for customer #{$customerId}");
         Flash::success('Customer profile updated successfully.');
@@ -91,10 +219,13 @@ $activeTab = $_GET['tab'] ?? 'khata';
 
 // Unpaid invoices for the payment modal
 $unpaidInvoices = Database::fetchAll(
-    "SELECT id, invoice_number, invoice_date, grand_total, outstanding 
+    "SELECT id, invoice_number, 
+            issue_date as invoice_date, 
+            total_amount as grand_total, 
+            balance_amount as outstanding 
      FROM invoices 
-     WHERE customer_id = ? AND business_id = ? AND status IN ('sent', 'partial', 'overdue', 'unpaid') AND outstanding > 0 
-     ORDER BY invoice_date ASC, id ASC",
+     WHERE customer_id = ? AND business_id = ? AND status IN ('issued', 'partially_paid', 'sent', 'partial', 'overdue', 'unpaid') AND balance_amount > 0 
+     ORDER BY issue_date ASC, id ASC",
     [$customerId, $businessId]
 );
 
@@ -115,15 +246,21 @@ require YBT_ROOT . '/includes/header.php';
             <p class="page-subtitle"><?= e($customer['company_name']) ?></p>
         <?php endif; ?>
     </div>
-    <div class="page-header-actions d-flex gap-2">
+    <div class="page-header-actions d-flex gap-2 flex-wrap">
+        <button type="button" class="btn btn-danger font-bold" data-modal-target="modal-you-gave">
+            <i class="ti ti-arrow-up-right mr-1"></i> You Gave
+        </button>
+        <button type="button" class="btn btn-success font-bold" data-modal-target="modal-you-got">
+            <i class="ti ti-arrow-down-left mr-1"></i> You Got
+        </button>
         <?php if (Permissions::has('payments.record')): ?>
-        <button type="button" class="btn btn-success" data-modal-target="record-khata-payment-modal">
-            <i class="ti ti-cash mr-1"></i> Receive Payment (رقم وصول کریں)
+        <button type="button" class="btn btn-outline" data-modal-target="record-khata-payment-modal">
+            <i class="ti ti-cash mr-1"></i> Receive Payment
         </button>
         <?php endif; ?>
         
         <a href="<?= url('customer-ledger-print.php?id=' . $customer['id']) ?>" target="_blank" class="btn btn-secondary">
-            <i class="ti ti-printer mr-1"></i> Print Statement (کھاتہ پرنٹ)
+            <i class="ti ti-printer mr-1"></i> Print Statement
         </a>
 
         <?php if (Permissions::has('invoices.create')): ?>
@@ -139,7 +276,7 @@ require YBT_ROOT . '/includes/header.php';
     <!-- Opening Balance -->
     <div class="kpi-card card-glow-primary">
         <div class="kpi-card-header">
-            <span class="kpi-title">Opening Balance (ابتدائی بقایا)</span>
+            <span class="kpi-title">Opening Balance</span>
             <i class="ti ti-scale text-primary"></i>
         </div>
         <div class="kpi-value"><?= formatCurrency((float)$customer['opening_balance']) ?></div>
@@ -149,30 +286,30 @@ require YBT_ROOT . '/includes/header.php';
         </div>
     </div>
 
-    <!-- You Gave (آپ نے دیے) -->
+    <!-- You Gave -->
     <div class="kpi-card card-glow-warning">
         <div class="kpi-card-header">
-            <span class="kpi-title text-danger">You Gave (آپ نے دیے)</span>
+            <span class="kpi-title text-danger">You Gave</span>
             <i class="ti ti-arrow-up-right text-danger"></i>
         </div>
         <div class="kpi-value text-danger"><?= formatCurrency($statement['total_gave']) ?></div>
-        <div class="kpi-footer text-xs text-muted">Total Invoiced Debits (مال دیا)</div>
+        <div class="kpi-footer text-xs text-muted">Total Invoiced Debits</div>
     </div>
 
-    <!-- You Got (آپ کو ملے) -->
+    <!-- You Got -->
     <div class="kpi-card card-glow-success">
         <div class="kpi-card-header">
-            <span class="kpi-title text-success">You Got (آپ کو ملے)</span>
+            <span class="kpi-title text-success">You Got</span>
             <i class="ti ti-arrow-down-left text-success"></i>
         </div>
         <div class="kpi-value text-success"><?= formatCurrency($statement['total_got']) ?></div>
-        <div class="kpi-footer text-xs text-muted">Total Collections Received (وصولی)</div>
+        <div class="kpi-footer text-xs text-muted">Total Collections Received</div>
     </div>
 
-    <!-- Net Khata Balance (بقیہ رقم) -->
+    <!-- Net Balance -->
     <div class="kpi-card <?= $currentBalance > 0 ? 'card-glow-danger' : ($currentBalance < 0 ? 'card-glow-success' : '') ?>" style="background: var(--bg-surface);">
         <div class="kpi-card-header">
-            <span class="kpi-title font-bold">Net Balance (بقیہ رقم)</span>
+            <span class="kpi-title font-bold">Net Balance</span>
             <i class="ti ti-wallet <?= $currentBalance > 0 ? 'text-danger' : 'text-success' ?>"></i>
         </div>
         <div class="kpi-value <?= $currentBalance > 0 ? 'text-danger' : ($currentBalance < 0 ? 'text-success' : 'text-muted') ?>">
@@ -180,11 +317,11 @@ require YBT_ROOT . '/includes/header.php';
         </div>
         <div class="kpi-footer text-xs font-medium">
             <?php if ($currentBalance > 0): ?>
-                <span class="text-danger"><i class="ti ti-alert-circle mr-1"></i> Customer Owes (آپ نے لینے ہیں)</span>
+                <span class="text-danger"><i class="ti ti-alert-circle mr-1"></i> Customer Owes</span>
             <?php elseif ($currentBalance < 0): ?>
-                <span class="text-success"><i class="ti ti-circle-check mr-1"></i> Advance Credit (کسٹمر کی امانت)</span>
+                <span class="text-success"><i class="ti ti-circle-check mr-1"></i> Advance Credit</span>
             <?php else: ?>
-                <span class="text-success"><i class="ti ti-check mr-1"></i> Account Cleared (حساب برابر)</span>
+                <span class="text-success"><i class="ti ti-check mr-1"></i> Account Cleared</span>
             <?php endif; ?>
         </div>
     </div>
@@ -264,7 +401,7 @@ require YBT_ROOT . '/includes/header.php';
                 <div class="tabs-nav d-flex gap-2">
                     <a href="<?= url('customer-view.php?id=' . $customer['id'] . '&tab=khata') ?>" 
                        class="btn btn-sm <?= $activeTab === 'khata' ? 'btn-primary' : 'btn-ghost' ?>">
-                        <i class="ti ti-notebook mr-1"></i> Khata Ledger (کھاتہ) (<?= count($statement['entries']) ?>)
+                        <i class="ti ti-notebook mr-1"></i> Customer Ledger (<?= count($statement['entries']) ?>)
                     </a>
                     <a href="<?= url('customer-view.php?id=' . $customer['id'] . '&tab=invoices') ?>" 
                        class="btn btn-sm <?= $activeTab === 'invoices' ? 'btn-primary' : 'btn-ghost' ?>">
@@ -285,6 +422,22 @@ require YBT_ROOT . '/includes/header.php';
             <div class="card-body p-0">
                 <?php if ($activeTab === 'khata'): ?>
                     <!-- TAB 1: Complete Customer Khata Ledger -->
+                    <!-- Quick Khata Transaction Bar -->
+                    <div class="p-3 bg-surface border-b d-flex justify-between align-center flex-wrap gap-2">
+                        <div class="d-flex align-center gap-2">
+                            <span class="badge badge-subtle"><i class="ti ti-scale mr-1"></i> Khata Transactions</span>
+                            <span class="text-xs text-muted">Direct entry for credit purchases & collections</span>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-danger btn-sm font-bold" data-modal-target="modal-you-gave">
+                                <i class="ti ti-arrow-up-right mr-1"></i> You Gave
+                            </button>
+                            <button type="button" class="btn btn-success btn-sm font-bold" data-modal-target="modal-you-got">
+                                <i class="ti ti-arrow-down-left mr-1"></i> You Got
+                            </button>
+                        </div>
+                    </div>
+
                     <?php if (empty($statement['entries'])): ?>
                         <div class="empty-state p-5 text-center">
                             <i class="ti ti-notebook text-4xl text-muted mb-2"></i>
@@ -299,9 +452,9 @@ require YBT_ROOT . '/includes/header.php';
                                         <th>Date</th>
                                         <th>Type</th>
                                         <th>Description & Reference</th>
-                                        <th class="text-right text-danger">You Gave (آپ نے دیے)<br><span class="text-xs font-normal">Debit</span></th>
-                                        <th class="text-right text-success">You Got (آپ کو ملے)<br><span class="text-xs font-normal">Credit</span></th>
-                                        <th class="text-right">Balance (بقایا)</th>
+                                        <th class="text-right text-danger">You Gave<br><span class="text-xs font-normal">Debit</span></th>
+                                        <th class="text-right text-success">You Got<br><span class="text-xs font-normal">Credit</span></th>
+                                        <th class="text-right">Balance</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -319,6 +472,10 @@ require YBT_ROOT . '/includes/header.php';
                                                 <span class="badge badge-secondary">CANCELLED</span>
                                             <?php elseif ($e['entry_type'] === 'opening_balance'): ?>
                                                 <span class="badge badge-primary">OP-BAL</span>
+                                            <?php elseif ($e['entry_type'] === 'you_gave'): ?>
+                                                <span class="badge badge-danger font-bold">YOU GAVE</span>
+                                            <?php elseif ($e['entry_type'] === 'you_got'): ?>
+                                                <span class="badge badge-success font-bold">YOU GOT</span>
                                             <?php else: ?>
                                                 <span class="badge badge-subtle"><?= strtoupper(e($e['entry_type'])) ?></span>
                                             <?php endif; ?>
@@ -328,8 +485,25 @@ require YBT_ROOT . '/includes/header.php';
                                             <?php if (!empty($e['reference_number'])): ?>
                                                 <div class="text-xs text-muted">Ref: <strong><?= e($e['reference_number']) ?></strong></div>
                                             <?php endif; ?>
+                                            <?php if (!empty($e['item_details'])): ?>
+                                                <div class="text-xs text-secondary mt-1"><i class="ti ti-package mr-1"></i><strong>Items:</strong> <?= e($e['item_details']) ?></div>
+                                            <?php endif; ?>
                                             <?php if (!empty($e['notes'])): ?>
                                                 <div class="text-xs text-muted italic"><?= e($e['notes']) ?></div>
+                                            <?php endif; ?>
+                                            <?php if (!empty($e['image_attachment'])): ?>
+                                                <div class="mt-1">
+                                                    <a href="<?= e($e['image_attachment']) ?>" target="_blank" class="badge badge-subtle text-primary" style="text-decoration: none;">
+                                                        <i class="ti ti-photo mr-1"></i> View Attachment
+                                                    </a>
+                                                </div>
+                                            <?php endif; ?>
+                                            <?php if (!empty($e['voice_attachment'])): ?>
+                                                <div class="mt-1">
+                                                    <a href="<?= e($e['voice_attachment']) ?>" target="_blank" class="badge badge-subtle text-info" style="text-decoration: none;">
+                                                        <i class="ti ti-volume mr-1"></i> Audio Note
+                                                    </a>
+                                                </div>
                                             <?php endif; ?>
                                         </td>
                                         <td class="text-right font-bold text-danger">
@@ -467,7 +641,7 @@ require YBT_ROOT . '/includes/header.php';
                 </div>
 
                 <div class="form-group mb-3">
-                    <label class="form-label required">Payment Amount (رقم)</label>
+                    <label class="form-label required">Payment Amount</label>
                     <div class="input-prefix-wrapper">
                         <span class="input-prefix"><?= e($currency) ?></span>
                         <input type="number" step="0.01" min="0.01" name="amount" class="form-input" 
@@ -477,11 +651,11 @@ require YBT_ROOT . '/includes/header.php';
                 </div>
 
                 <div class="form-group mb-3">
-                    <label class="form-label required">Payment Method (ادائیگی کا ذریعہ)</label>
+                    <label class="form-label required">Payment Method</label>
                     <select name="method" class="form-select" required>
                         <?php foreach ($paymentMethods as $code => $m): ?>
                             <option value="<?= e($code) ?>">
-                                <?= e($m['label']) ?> (<?= e($m['label_ur']) ?>)
+                                <?= e($m['label']) ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
@@ -522,6 +696,265 @@ require YBT_ROOT . '/includes/header.php';
                 <button type="button" class="btn btn-secondary" data-modal-dismiss>Cancel</button>
                 <button type="submit" class="btn btn-success">
                     <i class="ti ti-check mr-1"></i> Confirm & Save Payment
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- MODAL: You Gave — Debit Entry                    -->
+<!-- ============================================================ -->
+<div class="modal-backdrop" id="modal-you-gave" style="display: none;">
+    <div class="modal-card" style="max-width: 540px;">
+        <div class="modal-header" style="border-bottom: 2px solid #ef4444;">
+            <h3 class="modal-title text-danger">
+                <i class="ti ti-arrow-up-right mr-1"></i> You Gave — Debit Entry
+            </h3>
+            <button type="button" class="modal-close" data-modal-close aria-label="Close">&times;</button>
+        </div>
+        <form method="POST" action="<?= url('customer-view.php?id=' . $customer['id']) ?>" enctype="multipart/form-data">
+            <?= Csrf::field() ?>
+            <input type="hidden" name="action" value="record_you_gave">
+            <input type="hidden" name="idempotency_key" value="gave_<?= $businessId ?>_<?= $customerId ?>_<?= time() ?>_<?= rand(100, 999) ?>">
+
+            <div class="modal-body">
+                <div class="p-3 rounded mb-3" style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2);">
+                    <div class="d-flex justify-between align-center mb-1">
+                        <span class="text-muted text-xs">Customer</span>
+                        <strong><?= e($customer['name']) ?></strong>
+                    </div>
+                    <div class="d-flex justify-between align-center">
+                        <span class="text-muted text-xs">Current Khata Balance</span>
+                        <strong class="<?= $currentBalance > 0 ? 'text-danger' : 'text-success' ?>">
+                            <?= formatCurrency(abs($currentBalance)) ?>
+                            (<?= $currentBalance > 0 ? 'Customer Owes' : ($currentBalance < 0 ? 'Advance' : 'Cleared') ?>)
+                        </strong>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label required">Amount Given *</label>
+                        <div class="input-prefix-wrapper">
+                            <span class="input-prefix"><?= e($currency) ?></span>
+                            <input type="number" step="0.01" min="0.01" name="amount" class="form-input" placeholder="0.00" required autofocus>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required">Transaction Date *</label>
+                        <input type="date" name="entry_date" class="form-input" value="<?= date('Y-m-d') ?>" required>
+                    </div>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label class="form-label required">Description / Details *</label>
+                    <input type="text" name="description" class="form-input" placeholder="e.g. Spare parts taken on credit" required>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label class="form-label">Optional Item / Product Details</label>
+                    <textarea name="item_details" class="form-input" rows="2" placeholder="e.g. 1x iPhone 14 Pro OLED Display, 2x Charging Port, 1x Battery"></textarea>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-2">
+                    <div class="form-group">
+                        <label class="form-label"><i class="ti ti-photo mr-1 text-primary"></i> Optional Image / Bill</label>
+                        <input type="file" name="image_attachment" class="form-input" accept="image/*">
+                        <div class="text-xs text-muted mt-1">Photo of bill, parts, or handwritten slip</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label"><i class="ti ti-microphone mr-1 text-info"></i> Optional Voice Note</label>
+                        <input type="file" name="voice_attachment" class="form-input" accept="audio/*">
+                        <div class="text-xs text-muted mt-1">Audio recording or voice memo</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer d-flex justify-between align-center">
+                <span class="text-xs text-muted">This increases customer payable dues.</span>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
+                    <button type="submit" class="btn btn-danger font-bold">
+                        <i class="ti ti-check mr-1"></i> Save You Gave
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- MODAL: You Got — Credit Entry                    -->
+<!-- ============================================================ -->
+<div class="modal-backdrop" id="modal-you-got" style="display: none;">
+    <div class="modal-card" style="max-width: 540px;">
+        <div class="modal-header" style="border-bottom: 2px solid #10b981;">
+            <h3 class="modal-title text-success">
+                <i class="ti ti-arrow-down-left mr-1"></i> You Got — Credit Entry
+            </h3>
+            <button type="button" class="modal-close" data-modal-close aria-label="Close">&times;</button>
+        </div>
+        <form method="POST" action="<?= url('customer-view.php?id=' . $customer['id']) ?>" enctype="multipart/form-data">
+            <?= Csrf::field() ?>
+            <input type="hidden" name="action" value="record_you_got">
+            <input type="hidden" name="idempotency_key" value="got_<?= $businessId ?>_<?= $customerId ?>_<?= time() ?>_<?= rand(100, 999) ?>">
+
+            <div class="modal-body">
+                <div class="p-3 rounded mb-3" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2);">
+                    <div class="d-flex justify-between align-center mb-1">
+                        <span class="text-muted text-xs">Customer</span>
+                        <strong><?= e($customer['name']) ?></strong>
+                    </div>
+                    <div class="d-flex justify-between align-center">
+                        <span class="text-muted text-xs">Current Khata Balance</span>
+                        <strong class="<?= $currentBalance > 0 ? 'text-danger' : 'text-success' ?>">
+                            <?= formatCurrency(abs($currentBalance)) ?>
+                            (<?= $currentBalance > 0 ? 'Customer Owes' : ($currentBalance < 0 ? 'Advance' : 'Cleared') ?>)
+                        </strong>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label required">Amount Received *</label>
+                        <div class="input-prefix-wrapper">
+                            <span class="input-prefix"><?= e($currency) ?></span>
+                            <input type="number" step="0.01" min="0.01" name="amount" class="form-input" 
+                                   value="<?= $currentBalance > 0 ? e((string)$currentBalance) : '' ?>" placeholder="0.00" required autofocus>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required">Transaction Date *</label>
+                        <input type="date" name="entry_date" class="form-input" value="<?= date('Y-m-d') ?>" required>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label required">Payment Method *</label>
+                        <select name="payment_method" class="form-select" required>
+                            <?php foreach ($paymentMethods as $code => $m): ?>
+                                <option value="<?= e($code) ?>">
+                                    <?= e($m['label']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required">Description *</label>
+                        <input type="text" name="description" class="form-input" value="Cash received" required>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-2">
+                    <div class="form-group">
+                        <label class="form-label"><i class="ti ti-photo mr-1 text-primary"></i> Optional Payment Slip / Screenshot</label>
+                        <input type="file" name="image_attachment" class="form-input" accept="image/*">
+                        <div class="text-xs text-muted mt-1">Receipt, deposit slip or screenshot</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label"><i class="ti ti-microphone mr-1 text-info"></i> Optional Voice Note</label>
+                        <input type="file" name="voice_attachment" class="form-input" accept="audio/*">
+                        <div class="text-xs text-muted mt-1">Audio recording or voice memo</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer d-flex justify-between align-center">
+                <span class="text-xs text-muted">This reduces customer payable dues.</span>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
+                    <button type="submit" class="btn btn-success font-bold">
+                        <i class="ti ti-check mr-1"></i> Save You Got
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<!-- ============================================================ -->
+<!-- MODAL: Edit Customer Profile                                 -->
+<!-- ============================================================ -->
+<div class="modal-backdrop" id="edit-customer-modal" style="display: none;">
+    <div class="modal-card" style="max-width: 560px;">
+        <div class="modal-header">
+            <h3 class="modal-title">
+                <i class="ti ti-user-edit mr-1 text-primary"></i> Edit Customer Profile
+            </h3>
+            <button type="button" class="modal-close" data-modal-close aria-label="Close">&times;</button>
+        </div>
+        <form method="POST" action="<?= url('customer-view.php?id=' . $customer['id']) ?>">
+            <?= Csrf::field() ?>
+            <input type="hidden" name="action" value="update_customer">
+
+            <div class="modal-body">
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label required">Customer Name *</label>
+                        <input type="text" name="name" class="form-input" value="<?= e($customer['name']) ?>" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Shop / Company Name</label>
+                        <input type="text" name="company_name" class="form-input" value="<?= e($customer['company_name'] ?? '') ?>" placeholder="e.g. Al-Madina Telecom">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label">Mobile Phone</label>
+                        <div class="d-flex">
+                            <select name="country_code" id="edit-cust-country" class="form-select" style="width: 105px; border-top-right-radius: 0; border-bottom-right-radius: 0;">
+                                <option value="+92" selected>🇵🇰 +92</option>
+                                <option value="+971">🇦🇪 +971</option>
+                                <option value="+966">🇸🇦 +966</option>
+                                <option value="+1">🇺🇸 +1</option>
+                                <option value="+44">🇬🇧 +44</option>
+                                <option value="+91">🇮🇳 +91</option>
+                            </select>
+                            <input type="tel" name="phone" id="edit-cust-phone" class="form-input flex-1" 
+                                   style="border-top-left-radius: 0; border-bottom-left-radius: 0;"
+                                   value="<?= e($customer['phone'] ?? '') ?>" placeholder="03001234567" maxlength="15">
+                        </div>
+                        <div class="text-xs text-muted mt-1" id="edit-cust-hint">11 digits starting with 03 for Pakistan</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email Address</label>
+                        <input type="email" name="email" class="form-input" value="<?= e($customer['email'] ?? '') ?>" placeholder="client@example.com">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label">Billing City</label>
+                        <input type="text" name="billing_city" class="form-input" value="<?= e($customer['billing_city'] ?: $customer['city'] ?: '') ?>" placeholder="e.g. Lahore">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Status</label>
+                        <select name="status" class="form-select">
+                            <option value="active" <?= ($customer['status'] ?? 'active') === 'active' ? 'selected' : '' ?>>Active</option>
+                            <option value="inactive" <?= ($customer['status'] ?? '') === 'inactive' ? 'selected' : '' ?>>Inactive</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label class="form-label">Address</label>
+                    <input type="text" name="billing_address" class="form-input" value="<?= e($customer['billing_address'] ?: $customer['address'] ?: '') ?>" placeholder="Shop / Street Address">
+                </div>
+
+                <div class="form-group mb-1">
+                    <label class="form-label">Notes</label>
+                    <textarea name="notes" class="form-textarea" rows="2" placeholder="Customer notes or preferences..."><?= e($customer['notes'] ?? '') ?></textarea>
+                </div>
+            </div>
+
+            <div class="modal-footer d-flex justify-between align-center">
+                <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
+                <button type="submit" class="btn btn-primary font-bold">
+                    <i class="ti ti-check mr-1"></i> Save Changes
                 </button>
             </div>
         </form>

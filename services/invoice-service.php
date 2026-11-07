@@ -132,25 +132,27 @@ class InvoiceService {
             $cZip = $customer['billing_postal_code'] ?? $customer['postal_code'] ?? '';
             $cAddr = trim("{$cStreet}, {$cCity}, {$cState} {$cZip}");
 
-            // Insert invoice header with full dual SQLite/MySQL compatibility
+            // Insert invoice header with full dual SQLite/MySQL canonical compatibility
             $invoiceRecord = [
                 'uuid' => generateUuidV4(),
+                'sync_uuid' => generateUuidV4(),
                 'business_id' => $businessId,
                 'customer_id' => $customer['id'],
                 'customer_uuid' => $customer['uuid'] ?? null,
                 'invoice_number' => $invoiceNumber,
+                'issue_date' => $invoiceDate,
                 'invoice_date' => $invoiceDate,
                 'due_date' => $dueDate,
                 'subtotal' => $subtotal,
                 'discount_amount' => $totalDiscount + $overallDiscount,
+                'discount_total' => $totalDiscount + $overallDiscount,
                 'tax_amount' => $taxTotal,
                 'tax_total' => $taxTotal,
-                'cgst_total' => $cgstTotal,
-                'sgst_total' => $sgstTotal,
-                'igst_total' => $igstTotal,
+                'total_amount' => $grandTotal,
                 'grand_total' => $grandTotal,
-                'amount_paid' => 0.00,
                 'paid_amount' => 0.00,
+                'amount_paid' => 0.00,
+                'balance_amount' => $grandTotal,
                 'outstanding' => $grandTotal,
                 'status' => $status,
                 'payment_status' => ($status === 'paid') ? 'paid' : 'unpaid',
@@ -172,14 +174,17 @@ class InvoiceService {
                 $rowItem = [
                     'invoice_id' => $invoiceId,
                     'product_id' => $row['product_id'],
+                    'item_name' => $row['description'],
+                    'item_description' => $row['description'],
                     'description' => $row['description'],
                     'quantity' => $row['quantity'],
-                    'unit' => $row['unit'] ?? 'piece',
+                    'unit' => $row['unit'] ?? 'pcs',
                     'unit_price' => $row['unit_price'],
                     'discount_amount' => $row['discount_amount'],
                     'tax_rate' => $row['tax_rate'],
                     'tax_amount' => $row['tax_amount'],
                     'hsn_sac' => $row['hsn_sac'] ?? '',
+                    'total_amount' => $row['line_total'],
                     'line_total' => $row['line_total'],
                     'sort_order' => $row['sort_order'] ?? 1
                 ];
@@ -235,9 +240,23 @@ class InvoiceService {
         if (!$invoice) return null;
 
         $invoice['items'] = Database::fetchAll(
-            "SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order ASC, id ASC",
+            "SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id ASC",
             [$invoiceId]
         );
+
+        // Normalize invoice top-level and item aliases
+        $invoice['grand_total'] = (float)($invoice['total_amount'] ?? $invoice['grand_total'] ?? 0);
+        $invoice['amount_paid'] = (float)($invoice['paid_amount'] ?? $invoice['amount_paid'] ?? 0);
+        $invoice['outstanding'] = (float)($invoice['balance_amount'] ?? $invoice['outstanding'] ?? 0);
+        $invoice['invoice_date'] = $invoice['issue_date'] ?? $invoice['invoice_date'] ?? date('Y-m-d');
+        $invoice['tax_total'] = (float)($invoice['tax_amount'] ?? $invoice['tax_total'] ?? 0);
+        $invoice['discount_total'] = (float)($invoice['discount_amount'] ?? $invoice['discount_total'] ?? 0);
+
+        foreach ($invoice['items'] as &$it) {
+            $it['description'] = $it['item_name'] ?? $it['item_description'] ?? $it['description'] ?? '';
+            $it['line_total'] = (float)($it['total_amount'] ?? $it['line_total'] ?? 0);
+        }
+        unset($it);
 
         $invoice['payments'] = Database::fetchAll(
             "SELECT p.*, pa.amount as allocated_amount 

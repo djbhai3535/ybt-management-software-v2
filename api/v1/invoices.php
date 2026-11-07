@@ -26,17 +26,22 @@ if ($method === 'GET') {
             apiError('Invoice not found.', 'NOT_FOUND', 404);
         }
         $inv['items'] = Database::fetchAll(
-            "SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order ASC",
+            "SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id ASC",
             [$invoiceId]
         );
         apiResponse($inv);
     } else {
         $invoices = Database::fetchAll(
-            "SELECT i.*, c.name as customer_name, c.company_name
+            "SELECT i.*, 
+                    i.total_amount as grand_total, 
+                    i.paid_amount as amount_paid, 
+                    i.balance_amount as outstanding, 
+                    i.issue_date as invoice_date, 
+                    c.name as customer_name, c.company_name
              FROM invoices i
              JOIN customers c ON i.customer_id = c.id
              WHERE i.business_id = ?
-             ORDER BY i.invoice_date DESC, i.id DESC
+             ORDER BY i.issue_date DESC, i.id DESC
              LIMIT 50",
             [$tenantId]
         );
@@ -61,7 +66,7 @@ if ($method === 'POST') {
 
     // Idempotency check: if sync_uuid was already processed, return existing invoice
     $existing = Database::fetch(
-        "SELECT id, invoice_number, grand_total, status FROM invoices WHERE business_id = ? AND sync_uuid = ?",
+        "SELECT id, invoice_number, total_amount as grand_total, status FROM invoices WHERE business_id = ? AND sync_uuid = ?",
         [$tenantId, $syncUuid]
     );
 

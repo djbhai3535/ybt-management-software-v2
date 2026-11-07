@@ -50,11 +50,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Fetch Quotations
 $quotations = Database::fetchAll(
-    "SELECT q.*, c.name as customer_name, c.company_name 
+    "SELECT q.*, 
+            q.total_amount as grand_total, 
+            q.issue_date as quotation_date, 
+            q.valid_until as validity_date, 
+            c.name as customer_name, c.company_name 
      FROM quotations q 
      JOIN customers c ON q.customer_id = c.id 
      WHERE q.business_id = ? 
-     ORDER BY q.quotation_date DESC",
+     ORDER BY q.issue_date DESC",
     [$businessId]
 );
 

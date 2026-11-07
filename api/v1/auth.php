@@ -374,7 +374,7 @@ if ($subRoute === '/reset-password' && $method === 'POST') {
 
     try {
         Database::query("UPDATE password_resets SET used_at = NOW() WHERE id = ?", [$resetRecord['id']]);
-        Database::query("UPDATE users SET password = ?, failed_login_count = 0, locked_until = NULL WHERE id = ?", [
+        Database::query("UPDATE users SET password = ? WHERE id = ?", [
             password_hash($password, PASSWORD_DEFAULT),
             $resetRecord['user_id']
         ]);

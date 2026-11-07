@@ -20,9 +20,26 @@ class CustomerService {
         $params = [$businessId];
 
         if (!empty($filters['search'])) {
-            $term = '%' . trim($filters['search']) . '%';
-            $where[] = "(c.name LIKE ? OR c.company_name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR c.gstin LIKE ?)";
-            $params = array_merge($params, [$term, $term, $term, $term, $term]);
+            $rawTerm = trim($filters['search']);
+            $term = '%' . $rawTerm . '%';
+            $cleanDigits = preg_replace('/[^0-9]/', '', $rawTerm);
+
+            $searchSql = "(c.name LIKE ? OR c.company_name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR c.gstin LIKE ?";
+            $searchParams = [$term, $term, $term, $term, $term];
+
+            if (strlen($cleanDigits) >= 4) {
+                $searchSql .= " OR REPLACE(REPLACE(REPLACE(c.phone, ' ', ''), '-', ''), '+', '') LIKE ?";
+                $searchParams[] = '%' . $cleanDigits . '%';
+
+                if (str_starts_with($cleanDigits, '0') && strlen($cleanDigits) >= 7) {
+                    $searchSql .= " OR REPLACE(REPLACE(REPLACE(c.phone, ' ', ''), '-', ''), '+', '') LIKE ?";
+                    $searchParams[] = '%' . ltrim($cleanDigits, '0') . '%';
+                }
+            }
+
+            $searchSql .= ")";
+            $where[] = $searchSql;
+            $params = array_merge($params, $searchParams);
         }
 
         if (!empty($filters['status']) && $filters['status'] !== 'all') {
@@ -46,9 +63,9 @@ class CustomerService {
         $offset = ($page - 1) * $perPage;
         $sql = "SELECT c.*, 
                 (SELECT COUNT(*) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id) as invoice_count,
-                (SELECT COALESCE(SUM(grand_total), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void' AND status != 'cancelled') as total_billed,
-                (SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void' AND status != 'cancelled') as total_paid,
-                (SELECT COALESCE(SUM(outstanding), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status IN ('sent', 'partial', 'overdue', 'unpaid')) as total_outstanding,
+                (SELECT COALESCE(SUM(total_amount), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void') as total_billed,
+                (SELECT COALESCE(SUM(paid_amount), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void') as total_paid,
+                (SELECT COALESCE(SUM(balance_amount), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status IN ('issued', 'partially_paid', 'sent', 'partial', 'overdue')) as total_outstanding,
                 COALESCE(c.current_balance, 0) as khata_balance
                 FROM customers c 
                 WHERE {$whereClause} 
@@ -75,9 +92,9 @@ class CustomerService {
         $customer = Database::fetch(
             "SELECT c.*,
              (SELECT COUNT(*) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id) as invoice_count,
-             (SELECT COALESCE(SUM(grand_total), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void' AND status != 'cancelled') as total_billed,
-             (SELECT COALESCE(SUM(amount_paid), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void' AND status != 'cancelled') as total_paid,
-             (SELECT COALESCE(SUM(outstanding), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status IN ('sent', 'partial', 'overdue', 'unpaid')) as total_outstanding,
+             (SELECT COALESCE(SUM(total_amount), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void') as total_billed,
+             (SELECT COALESCE(SUM(paid_amount), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status != 'void') as total_paid,
+             (SELECT COALESCE(SUM(balance_amount), 0) FROM invoices WHERE customer_id = c.id AND business_id = c.business_id AND status IN ('issued', 'partially_paid', 'sent', 'partial', 'overdue')) as total_outstanding,
              COALESCE(c.current_balance, 0) as khata_balance
              FROM customers c 
              WHERE c.id = ? AND c.business_id = ?",
@@ -88,13 +105,26 @@ class CustomerService {
 
         // Invoices
         $customer['invoices'] = Database::fetchAll(
-            "SELECT * FROM invoices WHERE customer_id = ? AND business_id = ? ORDER BY invoice_date DESC, id DESC LIMIT 20",
+            "SELECT *, 
+                    total_amount as grand_total, 
+                    paid_amount as amount_paid, 
+                    balance_amount as outstanding, 
+                    issue_date as invoice_date 
+             FROM invoices 
+             WHERE customer_id = ? AND business_id = ? 
+             ORDER BY issue_date DESC, id DESC LIMIT 20",
             [$customerId, $businessId]
         );
 
         // Quotations
         $customer['quotations'] = Database::fetchAll(
-            "SELECT * FROM quotations WHERE customer_id = ? AND business_id = ? ORDER BY quotation_date DESC LIMIT 10",
+            "SELECT *, 
+                    total_amount as grand_total, 
+                    issue_date as quotation_date, 
+                    valid_until as validity_date 
+             FROM quotations 
+             WHERE customer_id = ? AND business_id = ? 
+             ORDER BY issue_date DESC LIMIT 10",
             [$customerId, $businessId]
         );
 

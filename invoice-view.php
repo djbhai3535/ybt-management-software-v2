@@ -88,7 +88,7 @@ require YBT_ROOT . '/includes/header.php';
             <i class="ti ti-brand-whatsapp mr-1"></i> WhatsApp
         </a>
 
-        <?php if ($invoice['outstanding'] > 0 && $invoice['status'] !== 'cancelled' && Permissions::has('payments.record')): ?>
+        <?php if (($invoice['outstanding'] ?? $invoice['balance_amount'] ?? 0) > 0 && $invoice['status'] !== 'cancelled' && Permissions::has('payments.record')): ?>
         <a href="<?= url('payments.php?invoice_id=' . $invoice['id'] . '&action=record') ?>" class="btn btn-success">
             <i class="ti ti-cash mr-1"></i> Record Payment
         </a>

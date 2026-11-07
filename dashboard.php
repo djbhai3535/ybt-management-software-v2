@@ -15,10 +15,15 @@ $monthlyTrends = ReportService::getMonthlyTrends($businessId, 6);
 
 // Overdue Invoices
 $overdueInvoices = Database::fetchAll(
-    "SELECT i.*, c.name as customer_name, c.company_name
+    "SELECT i.*, 
+            i.total_amount as grand_total, 
+            i.paid_amount as amount_paid, 
+            i.balance_amount as outstanding, 
+            i.issue_date as invoice_date, 
+            c.name as customer_name, c.company_name
      FROM invoices i
      JOIN customers c ON i.customer_id = c.id
-     WHERE i.business_id = ? AND (i.status = 'overdue' OR (i.status IN ('sent', 'partial') AND i.due_date < CURDATE()))
+     WHERE i.business_id = ? AND (i.status = 'overdue' OR (i.status IN ('issued', 'partially_paid', 'sent', 'partial') AND i.due_date < CURDATE()))
      ORDER BY i.due_date ASC LIMIT 5",
     [$businessId]
 );
@@ -33,7 +38,12 @@ $tasks = Database::fetchAll(
 
 // Recent Invoices
 $recentInvoices = Database::fetchAll(
-    "SELECT i.*, c.name as customer_name, c.company_name
+    "SELECT i.*, 
+            i.total_amount as grand_total, 
+            i.paid_amount as amount_paid, 
+            i.balance_amount as outstanding, 
+            i.issue_date as invoice_date, 
+            c.name as customer_name, c.company_name
      FROM invoices i
      JOIN customers c ON i.customer_id = c.id
      WHERE i.business_id = ?
@@ -252,7 +262,7 @@ try {
                                         <span class="text-danger font-medium"><?= formatDate($inv['due_date']) ?></span>
                                     </td>
                                     <td class="text-right font-bold text-danger">
-                                        <?= formatCurrency($inv['outstanding']) ?>
+                                        <?= formatCurrency($inv['outstanding'] ?? $inv['balance_amount'] ?? 0) ?>
                                     </td>
                                     <td class="text-center">
                                         <a href="<?= url('invoice-view.php?id=' . $inv['id']) ?>" class="btn btn-sm btn-ghost" title="View details">

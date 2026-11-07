@@ -1,10 +1,10 @@
 [package]
-name = "ybt-management-software"
-version = "1.0.0"
-description = "YBT Management Software — Commercial Windows Desktop CRM Edition"
-authors = ["YBT Development Team"]
+name = "dj-crm-software"
+version = "1.0.2"
+description = "DJ CRM Software — Commercial Windows Desktop CRM Edition"
+authors = ["DJ CRM Team"]
 license = "Proprietary"
-repository = "https://github.com/YouBTech01/ybt-management-software.git"
+repository = "https://github.com/djbhai3535/dj-crm-software-firebase.git"
 edition = "2021"
 
 [build-dependencies]

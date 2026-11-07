@@ -53,8 +53,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Handle AI Provider Configuration Save
+// Handle AI Provider Configuration Save (Super Admin Only)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_ai_provider') {
+    if (!Auth::isSuperAdmin()) {
+        Flash::error('Central AI Provider keys can only be configured by the Software Owner in the Super Admin Portal.');
+        header('Location: ' . url('settings.php#section-subscription'));
+        exit;
+    }
     Permissions::require('settings.edit');
     if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
         Flash::error('Invalid security token.');
@@ -112,8 +117,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
-// Handle Reset Demo Data
+// Handle Reset Demo Data (Super Admin Only)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'reset_demo') {
+    if (!Auth::isSuperAdmin()) {
+        Flash::error('Database factory reset is restricted to Super Admin administrators only.');
+        header('Location: ' . url('settings.php#backup'));
+        exit;
+    }
     Permissions::requireOwner();
     if (Csrf::validate($_POST['_csrf_token'] ?? '')) {
         $res = RestoreService::resetDemoData($businessId, $userId);
@@ -127,6 +137,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+
+// Handle Subscription Payment Proof Submission (Shopkeeper -> Super Admin)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'submit_subscription_payment') {
+    if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
+        Flash::error('Invalid security token.');
+    } else {
+        $proofPath = null;
+        if (!empty($_FILES['proof_file']['name']) && $_FILES['proof_file']['error'] === UPLOAD_ERR_OK) {
+            $f = $_FILES['proof_file'];
+            if ($f['size'] <= 4 * 1024 * 1024) {
+                $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+                $allowed = ['jpg', 'jpeg', 'png', 'webp', 'pdf'];
+                if (in_array($ext, $allowed, true)) {
+                    $destDir = YBT_ROOT . '/storage/uploads/payments';
+                    if (!is_dir($destDir)) @mkdir($destDir, 0755, true);
+                    $destName = 'sub_proof_' . $businessId . '_' . time() . '.' . $ext;
+                    if (move_uploaded_file($f['tmp_name'], $destDir . '/' . $destName)) {
+                        $proofPath = 'storage/uploads/payments/' . $destName;
+                    }
+                }
+            }
+        }
+
+        SubscriptionService::submitPaymentProof($businessId, [
+            'plan_id' => (int)($_POST['plan_id'] ?? 2),
+            'billing_cycle' => $_POST['billing_cycle'] ?? 'monthly',
+            'amount_paid' => (float)($_POST['amount_paid'] ?? 0),
+            'payment_method' => trim($_POST['payment_method'] ?? 'Bank Transfer'),
+            'payment_reference' => trim($_POST['payment_reference'] ?? ''),
+            'proof_attachment' => $proofPath,
+            'notes' => trim($_POST['notes'] ?? '')
+        ]);
+
+        Flash::success('Subscription payment proof submitted successfully! The software owner will verify your transaction and activate your plan.');
+        header('Location: ' . url('settings.php#section-subscription'));
+        exit;
+    }
+}
 // Fetch existing backups
 $backups = BackupService::listBackups($businessId);
 
@@ -134,6 +182,10 @@ $backups = BackupService::listBackups($businessId);
 $aiPresets = AIProviderService::getPresets();
 $aiProviders = AIProviderService::getAll($businessId);
 $activeAiProvider = AIProviderService::getActive($businessId);
+$subInfo = SubscriptionService::getBusinessPlan($businessId);
+$availablePlans = SubscriptionService::getPlans();
+$ownerPaymentMethods = PlatformSettings::getOwnerPaymentMethods();
+
 
 $editProvider = null;
 if (isset($_GET['edit_provider'])) {
@@ -165,17 +217,17 @@ require YBT_ROOT . '/includes/header.php';
     <a href="#invoicing" class="tab-link settings-tab-btn" data-target="#section-invoicing">
         <i class="ti ti-receipt mr-1"></i> Invoice Defaults
     </a>
-    <a href="#ai-providers" class="tab-link settings-tab-btn" data-target="#section-ai-providers">
-        <i class="ti ti-sparkles mr-1 text-primary"></i> AI Digital Manager & APIs
+    <a href="#subscription" class="tab-link settings-tab-btn" data-target="#section-subscription">
+        <i class="ti ti-crown mr-1 text-warning"></i> My Subscription Plan
     </a>
     <?php if (Auth::isOwner()): ?>
     <a href="#backup" class="tab-link settings-tab-btn" data-target="#section-backup">
-        <i class="ti ti-database mr-1"></i> Backup & Reset
+        <i class="ti ti-database mr-1"></i> Backup & Data
     </a>
     <?php endif; ?>
 </div>
 
-<form method="POST" action="<?= url('settings.php') ?>" id="settings-form">
+<form method="POST" action="<?= url('settings.php') ?>" id="settings-form" enctype="multipart/form-data">
     <?= Csrf::field() ?>
     <input type="hidden" name="action" value="update_business">
 
@@ -318,317 +370,242 @@ require YBT_ROOT . '/includes/header.php';
     </div>
 </form>
 
-<!-- Section: AI Provider & API Setup -->
-<div class="settings-section" id="section-ai-providers">
-    <!-- Active Status Overview Card -->
+<!-- Section: My Subscription Plan -->
+<div class="settings-section" id="section-subscription">
+    <!-- Active Subscription Overview -->
     <div class="card mb-4 card-glow-primary">
         <div class="card-header d-flex justify-between align-center">
             <div>
                 <h3 class="card-title">
-                    <i class="ti ti-sparkles mr-2 text-primary"></i> Current Active AI Engine
+                    <i class="ti ti-crown mr-2 text-warning"></i> Current SaaS Subscription Plan
                 </h3>
-                <p class="text-xs text-muted mb-0">The AI Digital Manager uses this engine for natural language queries, financial insights, and action proposals.</p>
+                <p class="text-xs text-muted mb-0">Your active software license, usage capacity, and renewal status.</p>
             </div>
             <div>
-                <?php if ($activeAiProvider && (!empty($activeAiProvider['api_key']) || $activeAiProvider['provider_type'] === 'custom')): ?>
-                    <span class="badge badge-success">
-                        <i class="ti ti-circle-check mr-1"></i> <?= e($activeAiProvider['display_name']) ?> Active
+                <?php if (empty($subInfo['is_expired'])): ?>
+                    <span class="badge badge-success text-sm py-1 px-3">
+                        <i class="ti ti-circle-check mr-1"></i> <?= e($subInfo['plan_name']) ?> Active
                     </span>
                 <?php else: ?>
-                    <span class="badge badge-info">
-                        <i class="ti ti-cpu mr-1"></i> Built-in Reasoning Active
+                    <span class="badge badge-danger text-sm py-1 px-3">
+                        <i class="ti ti-alert-triangle mr-1"></i> Plan Expired
                     </span>
                 <?php endif; ?>
             </div>
         </div>
         <div class="card-body">
-            <?php if ($activeAiProvider && (!empty($activeAiProvider['api_key']) || $activeAiProvider['provider_type'] === 'custom')): ?>
-                <div class="d-flex align-center gap-3">
-                    <div class="avatar avatar-md bg-primary-light text-primary avatar-circle">
-                        <i class="ti <?= e($aiPresets[$activeAiProvider['provider_type']]['icon'] ?? 'ti-cpu') ?> text-xl"></i>
-                    </div>
-                    <div class="flex-1">
-                        <div class="d-flex align-center gap-2 mb-1">
-                            <strong><?= e($activeAiProvider['display_name']) ?></strong>
-                            <span class="badge badge-subtle"><?= e($activeAiProvider['provider_type']) ?></span>
-                            <?php if ($activeAiProvider['is_default']): ?>
-                                <span class="badge badge-primary">Primary Default</span>
-                            <?php endif; ?>
-                        </div>
-                        <div class="text-xs text-muted">
-                            Model: <code><?= e($activeAiProvider['model_id'] ?: 'Default') ?></code> &bull; 
-                            Endpoint: <code><?= e(truncate($activeAiProvider['base_url'] ?: 'Standard', 45)) ?></code> &bull;
-                            Temperature: <code><?= e($activeAiProvider['temperature']) ?></code>
-                        </div>
-                    </div>
-                    <a href="<?= url('ai-assistant.php') ?>" class="btn btn-sm btn-primary">
-                        <i class="ti ti-messages mr-1"></i> Launch AI Assistant
-                    </a>
+            <div class="d-flex align-center gap-3 mb-4">
+                <div class="avatar avatar-lg bg-warning-light text-warning avatar-circle">
+                    <i class="ti ti-diamond text-2xl"></i>
                 </div>
-            <?php else: ?>
-                <div class="d-flex align-center gap-3">
-                    <div class="avatar avatar-md bg-info-light text-info avatar-circle">
-                        <i class="ti ti-cpu text-xl"></i>
+                <div class="flex-1">
+                    <div class="d-flex align-center gap-2 mb-1">
+                        <h4 class="mb-0 font-bold"><?= e($subInfo['plan_name']) ?></h4>
+                        <span class="badge badge-primary"><?= e($subInfo['plan']['badge'] ?? 'Active') ?></span>
+                    </div>
+                    <div class="text-xs text-muted">
+                        Expires on: <strong><?= formatDate($subInfo['expires_at']) ?></strong> &bull; 
+                        Remaining: <span class="badge badge-subtle font-semibold"><?= (int)$subInfo['days_remaining'] ?> days remaining</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quota Utilization Metrics -->
+            <h5 class="text-xs font-bold text-uppercase text-muted tracking-wider mb-3">Live Resource Capacity & Quotas</h5>
+            <div class="grid grid-cols-4 gap-3">
+                <div class="p-3 rounded bg-surface border">
+                    <div class="text-xs text-muted mb-1 d-flex justify-between">
+                        <span>Staff User Accounts</span>
+                        <span><?= $subInfo['usage']['users'] ?> / <?= $subInfo['plan']['max_users'] ?></span>
+                    </div>
+                    <div class="progress" style="height: 6px;">
+                        <?php $uPct = min(100, round(($subInfo['usage']['users'] / max(1, $subInfo['plan']['max_users'])) * 100)); ?>
+                        <div class="progress-bar bg-primary" style="width: <?= $uPct ?>%"></div>
+                    </div>
+                </div>
+
+                <div class="p-3 rounded bg-surface border">
+                    <div class="text-xs text-muted mb-1 d-flex justify-between">
+                        <span>Customer Limit</span>
+                        <span><?= $subInfo['usage']['customers'] ?> / <?= $subInfo['plan']['max_customers'] ?></span>
+                    </div>
+                    <div class="progress" style="height: 6px;">
+                        <?php $cPct = min(100, round(($subInfo['usage']['customers'] / max(1, $subInfo['plan']['max_customers'])) * 100)); ?>
+                        <div class="progress-bar bg-info" style="width: <?= $cPct ?>%"></div>
+                    </div>
+                </div>
+
+                <div class="p-3 rounded bg-surface border">
+                    <div class="text-xs text-muted mb-1 d-flex justify-between">
+                        <span>Monthly Invoices</span>
+                        <span><?= $subInfo['usage']['invoices_this_month'] ?> / <?= $subInfo['plan']['max_invoices_per_month'] ?></span>
+                    </div>
+                    <div class="progress" style="height: 6px;">
+                        <?php $iPct = min(100, round(($subInfo['usage']['invoices_this_month'] / max(1, $subInfo['plan']['max_invoices_per_month'])) * 100)); ?>
+                        <div class="progress-bar bg-success" style="width: <?= $iPct ?>%"></div>
+                    </div>
+                </div>
+
+                <div class="p-3 rounded bg-surface border">
+                    <div class="text-xs text-muted mb-1 d-flex justify-between">
+                        <span>AI Assistant</span>
+                        <span><?= !empty($subInfo['plan']['ai_enabled']) ? 'Enabled' : 'Disabled' ?></span>
                     </div>
                     <div>
-                        <div class="font-semibold text-sm">Autonomous Local Business Logic Active</div>
-                        <p class="text-xs text-muted mb-0">
-                            The assistant is currently running in local offline mode using database-driven business logic.
-                            To enable generative natural language conversations, connect your <strong>Google AI Studio</strong> or <strong>OpenRouter</strong> API key below.
-                        </p>
+                        <?php if (!empty($subInfo['plan']['ai_enabled'])): ?>
+                            <span class="badge badge-success text-xs"><i class="ti ti-check mr-1"></i> Included</span>
+                        <?php else: ?>
+                            <span class="badge badge-secondary text-xs"><i class="ti ti-lock mr-1"></i> Upgrade Required</span>
+                        <?php endif; ?>
                     </div>
                 </div>
-            <?php endif; ?>
+            </div>
         </div>
     </div>
 
-    <!-- Provider Configuration Form -->
+    <!-- Official Platform Payment Accounts (Owner Accounts) -->
     <div class="card mb-4">
-        <div class="card-header d-flex justify-between align-center">
+        <div class="card-header">
             <h3 class="card-title">
-                <i class="ti ti-key mr-2 text-primary"></i> <?= $editProvider ? 'Edit AI Provider #' . $editProvider['id'] : 'Configure New AI Provider API' ?>
+                <i class="ti ti-building-bank mr-2 text-primary"></i> Software Platform Payment Accounts
             </h3>
-            <?php if ($editProvider): ?>
-                <a href="<?= url('settings.php#section-ai-providers') ?>" class="btn btn-xs btn-ghost">
-                    <i class="ti ti-plus mr-1"></i> Add New Provider Instead
-                </a>
-            <?php endif; ?>
+            <p class="text-xs text-muted mb-0">Use these official accounts to remit subscription and renewal payments to DJ CRM Software platform management.</p>
         </div>
         <div class="card-body">
-            <form method="POST" action="<?= url('settings.php') ?>" id="ai-provider-form">
-                <?= Csrf::field() ?>
-                <input type="hidden" name="action" value="save_ai_provider">
-                <input type="hidden" name="id" id="ai-provider-id" value="<?= e($editProvider['id'] ?? 0) ?>">
+            <div class="grid grid-cols-2 gap-4">
+                <div class="p-3 rounded bg-surface border">
+                    <div class="font-bold text-sm text-primary mb-2"><i class="ti ti-building mr-1"></i> Bank Wire / IBFT (Official)</div>
+                    <table class="table-compact text-xs w-full">
+                        <tr><td class="text-muted py-1" style="width:110px;">Bank:</td><td><strong><?= e($ownerPaymentMethods['bank_name'] ?? 'Meezan Bank Limited') ?></strong></td></tr>
+                        <tr><td class="text-muted py-1">Account Title:</td><td><strong><?= e($ownerPaymentMethods['account_title'] ?? 'DJ CRM Software Services') ?></strong></td></tr>
+                        <tr><td class="text-muted py-1">Account No:</td><td><strong class="font-mono"><?= e($ownerPaymentMethods['account_number'] ?? '01020304050607') ?></strong></td></tr>
+                        <tr><td class="text-muted py-1">IBAN:</td><td><strong class="font-mono"><?= e($ownerPaymentMethods['iban'] ?? 'PK00MEZN01020304050607') ?></strong></td></tr>
+                    </table>
+                </div>
 
-                <div class="grid grid-cols-2 gap-3 mb-3">
+                <div class="p-3 rounded bg-surface border">
+                    <div class="font-bold text-sm text-success mb-2"><i class="ti ti-device-mobile mr-1"></i> Mobile Wallets & UPI</div>
+                    <table class="table-compact text-xs w-full">
+                        <tr><td class="text-muted py-1" style="width:110px;">EasyPaisa:</td><td><strong class="font-mono"><?= e($ownerPaymentMethods['easypaisa'] ?? '03001234567') ?></strong></td></tr>
+                        <tr><td class="text-muted py-1">JazzCash:</td><td><strong class="font-mono"><?= e($ownerPaymentMethods['jazzcash'] ?? '03001234567') ?></strong></td></tr>
+                        <tr><td class="text-muted py-1">Raast ID:</td><td><strong class="font-mono"><?= e($ownerPaymentMethods['raast_id'] ?? '03001234567') ?></strong></td></tr>
+                        <tr><td class="text-muted py-1">UPI ID:</td><td><strong class="font-mono"><?= e($ownerPaymentMethods['upi_id'] ?? 'djcrm@bank') ?></strong></td></tr>
+                    </table>
+                </div>
+            </div>
+            <div class="alert alert-info mt-3 mb-0 text-xs">
+                <i class="ti ti-info-circle mr-1"></i> <strong>Note:</strong> These payment channels belong strictly to platform management. To configure your own shop banking details for customer invoices, navigate to the <strong>Banking & UPI</strong> tab above.
+            </div>
+        </div>
+    </div>
+
+    <!-- Submit Payment Proof Form -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h3 class="card-title">
+                <i class="ti ti-upload mr-2 text-primary"></i> Renew or Upgrade Subscription
+            </h3>
+            <p class="text-xs text-muted mb-0">Submit your transaction receipt or reference number after transferring your subscription fee.</p>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="<?= url('settings.php') ?>" enctype="multipart/form-data">
+                <?= Csrf::field() ?>
+                <input type="hidden" name="action" value="submit_subscription_payment">
+
+                <div class="grid grid-cols-3 gap-3 mb-3">
                     <div class="form-group">
-                        <label class="form-label required">Provider Platform</label>
-                        <select name="provider_type" id="ai-provider-type" class="form-select" required>
-                            <?php 
-                            $currType = $editProvider['provider_type'] ?? 'google_gemini';
-                            foreach ($aiPresets as $type => $info): 
-                            ?>
-                                <option value="<?= e($type) ?>" <?= $currType === $type ? 'selected' : '' ?>>
-                                    <?= e($info['name']) ?>
+                        <label class="form-label required">Select SaaS Plan</label>
+                        <select name="plan_id" class="form-select" required>
+                            <?php foreach ($availablePlans as $p): ?>
+                                <option value="<?= (int)$p['id'] ?>" <?= ($subInfo['plan']['id'] ?? 2) == $p['id'] ? 'selected' : '' ?>>
+                                    <?= e($p['name']) ?> — <?= formatCurrency($p['price_monthly'], $p['currency']) ?> / mo
                                 </option>
                             <?php endforeach; ?>
                         </select>
-                        <span class="text-xs text-muted mt-1">Select your preferred AI service or unified proxy.</span>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label required">Configuration Label</label>
-                        <input type="text" name="display_name" id="ai-display-name" class="form-input" 
-                               placeholder="e.g. Google Gemini 1.5 Flash" 
-                               value="<?= e($editProvider['display_name'] ?? 'Google AI Studio (Gemini)') ?>" required>
+                        <label class="form-label required">Billing Cycle</label>
+                        <select name="billing_cycle" class="form-select" required>
+                            <option value="monthly">Monthly Subscription</option>
+                            <option value="annual">Annual License (Save 15%)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label required">Amount Paid (PKR)</label>
+                        <input type="number" step="0.01" name="amount_paid" class="form-input" placeholder="e.g. 3000" required>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label required">Payment Method Used</label>
+                        <select name="payment_method" class="form-select" required>
+                            <option value="Bank Transfer">Bank Transfer (IBFT)</option>
+                            <option value="EasyPaisa">EasyPaisa</option>
+                            <option value="JazzCash">JazzCash</option>
+                            <option value="Raast">Raast Instant Payment</option>
+                            <option value="UPI">UPI</option>
+                            <option value="Cash / Cheque">Cash / Authorized Agent</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label required">Transaction Reference / ID</label>
+                        <input type="text" name="payment_reference" class="form-input" placeholder="e.g. TXN-98765432" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Payment Receipt / Screenshot</label>
+                        <input type="file" name="proof_file" class="form-input" accept="image/*,.pdf">
                     </div>
                 </div>
 
                 <div class="form-group mb-3">
-                    <div class="d-flex justify-between align-center mb-1">
-                        <label class="form-label mb-0 required">API Key</label>
-                        <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" 
-                           id="ai-api-key-link" class="text-xs text-primary font-medium">
-                            Get Google AI Studio API Key ↗
-                        </a>
-                    </div>
-                    <div class="input-icon-wrapper" style="position: relative;">
-                        <input type="password" name="api_key" id="ai-api-key" class="form-input" 
-                               placeholder="<?= $editProvider && !empty($editProvider['api_key']) ? 'Leave blank to retain saved encrypted key' : 'Paste API Key here (e.g. AIzaSy... or sk-or-v1-...)' ?>" 
-                               autocomplete="off" style="padding-right: 40px;">
-                        <button type="button" id="btn-toggle-ai-key" class="btn btn-ghost btn-xs" 
-                                style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%);" title="Toggle visibility">
-                            <i class="ti ti-eye"></i>
-                        </button>
-                    </div>
-                    <span class="text-xs text-muted mt-1">
-                        <i class="ti ti-lock mr-1"></i> API keys are encrypted at rest with AES-256-CBC and never logged.
-                        <?php if ($editProvider && !empty($editProvider['api_key'])): ?>
-                            <span class="text-success font-medium ml-1">&bull; Currently saved key: <code><?= e(substr($editProvider['api_key'], 0, 4) . '••••••••' . substr($editProvider['api_key'], -4)) ?></code></span>
-                        <?php endif; ?>
-                    </span>
+                    <label class="form-label">Additional Remarks / Note to Super Admin</label>
+                    <textarea name="notes" class="form-textarea" rows="2" placeholder="Optional transaction details or renewal requests..."></textarea>
                 </div>
 
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div class="form-group">
-                        <label class="form-label required">Model ID</label>
-                        <input type="text" name="model_id" id="ai-model-id" class="form-input" 
-                               placeholder="e.g. gemini-1.5-flash or google/gemini-flash-1.5" 
-                               value="<?= e($editProvider['model_id'] ?? 'gemini-1.5-flash') ?>" data-auto="1" required>
-                        <div class="mt-2">
-                            <span class="text-xs text-muted mr-1">Quick Select:</span>
-                            <div id="ai-model-chips" class="d-inline-flex flex-wrap gap-1 align-center">
-                                <!-- Populated dynamically by settings.js -->
-                                <button type="button" class="btn btn-xs btn-outline-secondary" onclick="document.getElementById('ai-model-id').value='gemini-1.5-flash'">gemini-1.5-flash</button>
-                                <button type="button" class="btn btn-xs btn-outline-secondary" onclick="document.getElementById('ai-model-id').value='gemini-1.5-pro'">gemini-1.5-pro</button>
-                                <button type="button" class="btn btn-xs btn-outline-secondary" onclick="document.getElementById('ai-model-id').value='gemini-2.0-flash-exp'">gemini-2.0-flash-exp</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Base API URL</label>
-                        <input type="text" name="base_url" id="ai-base-url" class="form-input" 
-                               placeholder="e.g. https://generativelanguage.googleapis.com/v1beta" 
-                               value="<?= e($editProvider['base_url'] ?? 'https://generativelanguage.googleapis.com/v1beta') ?>" data-auto="1">
-                        <span class="text-xs text-muted mt-1">Pre-filled with official vendor endpoint. Change for custom reverse proxies or local models.</span>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-2 gap-3 mb-4">
-                    <div class="form-group">
-                        <label class="form-label">Temperature: <span id="temp-display" class="font-bold">0.70</span></label>
-                        <input type="range" name="temperature" class="form-range" min="0" max="1" step="0.05" 
-                               value="<?= e($editProvider['temperature'] ?? 0.70) ?>" 
-                               oninput="document.getElementById('temp-display').textContent=parseFloat(this.value).toFixed(2);">
-                        <div class="d-flex justify-between text-xs text-muted mt-1">
-                            <span>0.0 (Precise / Factual)</span>
-                            <span>1.0 (Creative)</span>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Max Output Tokens</label>
-                        <select name="max_tokens" class="form-select">
-                            <option value="1024" <?= ($editProvider['max_tokens'] ?? 4096) == 1024 ? 'selected' : '' ?>>1,024 tokens (Short)</option>
-                            <option value="2048" <?= ($editProvider['max_tokens'] ?? 4096) == 2048 ? 'selected' : '' ?>>2,048 tokens (Standard)</option>
-                            <option value="4096" <?= ($editProvider['max_tokens'] ?? 4096) == 4096 ? 'selected' : '' ?>>4,096 tokens (Detailed, Recommended)</option>
-                            <option value="8192" <?= ($editProvider['max_tokens'] ?? 4096) == 8192 ? 'selected' : '' ?>>8,192 tokens (Extended)</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="d-flex gap-4 mb-4">
-                    <label class="d-flex align-center gap-2 cursor-pointer">
-                        <input type="checkbox" name="is_active" value="1" <?= (!isset($editProvider) || !empty($editProvider['is_active'])) ? 'checked' : '' ?>>
-                        <span class="text-sm font-medium">Enable this AI provider for requests</span>
-                    </label>
-
-                    <label class="d-flex align-center gap-2 cursor-pointer">
-                        <input type="checkbox" name="is_default" value="1" <?= (!isset($editProvider) || !empty($editProvider['is_default'])) ? 'checked' : '' ?>>
-                        <span class="text-sm font-medium">Set as primary default AI provider</span>
-                    </label>
-                </div>
-
-                <div class="d-flex justify-between align-center pt-3 border-top">
-                    <button type="button" id="btn-test-ai-provider" class="btn btn-secondary">
-                        <i class="ti ti-bolt mr-1 text-warning"></i> Test Connection
+                <div class="d-flex justify-end">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="ti ti-send mr-1"></i> Submit Payment Proof for Verification
                     </button>
-
-                    <div class="d-flex gap-2">
-                        <?php if ($editProvider): ?>
-                            <a href="<?= url('settings.php#section-ai-providers') ?>" class="btn btn-ghost">Cancel</a>
-                        <?php endif; ?>
-                        <button type="submit" class="btn btn-primary">
-                            <i class="ti ti-device-floppy mr-1"></i> <?= $editProvider ? 'Update Provider' : 'Save AI Provider' ?>
-                        </button>
-                    </div>
                 </div>
-
-                <!-- Test Connection Feedback Message Container -->
-                <div id="ai-test-result" style="display: none;"></div>
             </form>
         </div>
     </div>
 
-    <!-- Configured Providers Directory -->
+    <!-- Central AI Digital Manager Information -->
     <div class="card mb-4">
-        <div class="card-header">
-            <h3 class="card-title">
-                <i class="ti ti-list mr-2 text-primary"></i> Configured AI Providers
-            </h3>
+        <div class="card-header d-flex justify-between align-center">
+            <div>
+                <h3 class="card-title">
+                    <i class="ti ti-sparkles mr-2 text-primary"></i> Central AI Digital Manager
+                </h3>
+                <p class="text-xs text-muted mb-0">Intelligent financial queries, conversational summaries, and profit analytics.</p>
+            </div>
+            <div>
+                <a href="<?= url('ai-assistant.php') ?>" class="btn btn-sm btn-primary">
+                    <i class="ti ti-messages mr-1"></i> Open AI Assistant
+                </a>
+            </div>
         </div>
-        <div class="card-body p-0">
-            <?php if (empty($aiProviders)): ?>
-                <div class="p-4 text-center text-muted text-sm">
-                    <i class="ti ti-info-circle text-xl d-block mb-1 text-muted"></i>
-                    No external AI providers configured yet. Configure <strong>Google AI Studio</strong> or <strong>OpenRouter</strong> above to enable live model queries.
-                </div>
-            <?php else: ?>
-                <div class="table-responsive">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Provider</th>
-                                <th>Model ID</th>
-                                <th>Base URL</th>
-                                <th>API Key Status</th>
-                                <th>Status</th>
-                                <th class="text-center">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($aiProviders as $p): ?>
-                            <tr>
-                                <td>
-                                    <div class="d-flex align-center gap-2">
-                                        <i class="ti <?= e($aiPresets[$p['provider_type']]['icon'] ?? 'ti-cpu') ?> text-primary text-md"></i>
-                                        <div>
-                                            <strong><?= e($p['display_name']) ?></strong>
-                                            <div class="text-xs text-muted"><?= e($p['provider_type']) ?></div>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><code><?= e($p['model_id'] ?: 'Default') ?></code></td>
-                                <td><span class="text-xs text-muted"><?= e(truncate($p['base_url'] ?: 'Vendor default', 32)) ?></span></td>
-                                <td>
-                                    <?php if ($p['has_key']): ?>
-                                        <span class="badge badge-success"><i class="ti ti-lock mr-1"></i> <?= e($p['masked_key']) ?></span>
-                                    <?php else: ?>
-                                        <span class="badge badge-warning">No Key Saved</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if ($p['is_default']): ?>
-                                        <span class="badge badge-primary"><i class="ti ti-star mr-1"></i> Default</span>
-                                    <?php elseif ($p['is_active']): ?>
-                                        <span class="badge badge-success">Active</span>
-                                    <?php else: ?>
-                                        <span class="badge badge-subtle">Disabled</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="text-center">
-                                    <div class="d-inline-flex gap-1">
-                                        <a href="<?= url('settings.php?edit_provider=' . $p['id'] . '#section-ai-providers') ?>" 
-                                           class="btn btn-xs btn-ghost" title="Edit provider">
-                                            <i class="ti ti-pencil"></i>
-                                        </a>
-
-                                        <?php if (!$p['is_default']): ?>
-                                        <form method="POST" action="<?= url('settings.php') ?>" class="d-inline">
-                                            <?= Csrf::field() ?>
-                                            <input type="hidden" name="action" value="set_default_ai_provider">
-                                            <input type="hidden" name="provider_id" value="<?= $p['id'] ?>">
-                                            <button type="submit" class="btn btn-xs btn-ghost text-primary" title="Make Primary Default">
-                                                <i class="ti ti-star"></i>
-                                            </button>
-                                        </form>
-                                        <?php endif; ?>
-
-                                        <form method="POST" action="<?= url('settings.php') ?>" class="d-inline" 
-                                              onsubmit="return confirm('Are you sure you want to remove this provider configuration?');">
-                                            <?= Csrf::field() ?>
-                                            <input type="hidden" name="action" value="delete_ai_provider">
-                                            <input type="hidden" name="provider_id" value="<?= $p['id'] ?>">
-                                            <button type="submit" class="btn btn-xs btn-ghost text-danger" title="Delete provider">
-                                                <i class="ti ti-trash"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
+        <div class="card-body">
+            <p class="text-sm text-muted mb-0">
+                DJ CRM Software includes a cloud AI Digital Manager configured centrally by platform administration.
+                Shopkeepers on <strong>Standard, Premium, and Enterprise</strong> plans can use AI business intelligence directly without needing to provide or configure their own API keys.
+            </p>
+            <?php if (Auth::isSuperAdmin()): ?>
+                <div class="mt-3 p-3 rounded bg-warning-light border border-warning text-xs">
+                    <strong><i class="ti ti-shield-check mr-1"></i> Platform Owner Notice:</strong>
+                    As Platform Super Admin, you can configure platform-wide AI API keys and models in the
+                    <a href="<?= url('admin/settings.php') ?>" class="font-bold underline text-primary">Super Admin Portal Settings</a>.
                 </div>
             <?php endif; ?>
         </div>
     </div>
 </div>
-
-<script>
-window.AI_PRESETS = <?= json_encode($aiPresets) ?>;
-</script>
 
 <!-- Section 4: Backup, Restore & Reset (Owner only) -->
 <?php if (Auth::isOwner()): ?>
@@ -677,7 +654,8 @@ window.AI_PRESETS = <?= json_encode($aiPresets) ?>;
         </div>
     </div>
 
-    <!-- Factory Reset Demo Data -->
+    <!-- Factory Reset Demo Data (Super Admin Only) -->
+    <?php if (Auth::isSuperAdmin()): ?>
     <div class="card border-danger">
         <div class="card-header">
             <h3 class="card-title text-danger"><i class="ti ti-alert-triangle mr-1"></i> Reset Demo Data</h3>
@@ -696,6 +674,7 @@ window.AI_PRESETS = <?= json_encode($aiPresets) ?>;
             </form>
         </div>
     </div>
+    <?php endif; ?>
 </div>
 <?php endif; ?>
 

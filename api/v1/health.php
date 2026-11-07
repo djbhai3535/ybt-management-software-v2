@@ -5,6 +5,10 @@
 
 header('Content-Type: application/json; charset=utf-8');
 
+if (!defined('YBT_ROOT')) {
+    require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
+}
+
 $dbStatus = 'disconnected';
 try {
     if (class_exists('Database')) {

@@ -23,12 +23,12 @@ if (Auth::check()) {
 <aside class="sidebar">
     <div class="sidebar-header">
         <a href="<?= url('dashboard.php') ?>" class="sidebar-brand">
-            <div class="brand-logo-icon">
-                <i class="ti ti-chart-dots-3"></i>
+            <div class="brand-logo-icon" style="background: transparent; box-shadow: none; padding: 0;">
+                <img src="<?= asset('images/logo-icon.svg') ?>" alt="DJ CRM" style="width: 34px; height: 34px; border-radius: 8px;">
             </div>
             <div class="brand-text">
-                <span class="brand-title">YBT</span>
-                <span class="brand-subtitle">Management</span>
+                <span class="brand-title">DJ <span style="color: var(--color-primary, #2563EB);">CRM</span></span>
+                <span class="brand-subtitle">Software</span>
             </div>
         </a>
         <button type="button" class="sidebar-toggle-btn" data-action="toggle-sidebar" title="Toggle Sidebar">
@@ -37,8 +37,12 @@ if (Auth::check()) {
     </div>
 
     <div class="sidebar-business-info">
-        <div class="business-badge-avatar">
-            <?= strtoupper(substr(e($businessName), 0, 1)) ?>
+        <div class="business-badge-avatar" style="overflow: hidden;">
+            <?php if (!empty($business['logo_url'])): ?>
+                <img src="<?= url($business['logo_url']) ?>" alt="Logo" style="width: 100%; height: 100%; object-fit: cover; border-radius: 6px;">
+            <?php else: ?>
+                <?= strtoupper(substr(e($businessName), 0, 1)) ?>
+            <?php endif; ?>
         </div>
         <div class="business-badge-details">
             <div class="business-name" title="<?= e($businessName) ?>"><?= e(truncate($businessName, 22)) ?></div>
@@ -184,10 +188,16 @@ if (Auth::check()) {
             </li>
             <?php endif; ?>
 
-            <!-- 13. Settings -->
+            <!-- 13. Business Profile & Settings -->
             <?php if (Permissions::has('settings.access')): ?>
             <li class="nav-item">
-                <a href="<?= url('settings.php') ?>" class="nav-link <?= $currentPage === 'settings.php' ? 'active' : '' ?>">
+                <a href="<?= url('settings.php#business') ?>" class="nav-link <?= ($currentPage === 'settings.php' && ($_GET['tab'] ?? '') === 'business') ? 'active' : '' ?>">
+                    <i class="ti ti-building-store nav-icon"></i>
+                    <span class="nav-label">Business Profile</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a href="<?= url('settings.php') ?>" class="nav-link <?= ($currentPage === 'settings.php' && ($_GET['tab'] ?? '') !== 'business') ? 'active' : '' ?>">
                     <i class="ti ti-settings nav-icon"></i>
                     <span class="nav-label">Settings</span>
                 </a>

@@ -41,7 +41,7 @@ $params = [$businessId];
 
 if ($status !== 'all') {
     if ($status === 'overdue') {
-        $where[] = "(i.status = 'overdue' OR (i.status IN ('sent', 'partial') AND i.due_date < CURDATE()))";
+        $where[] = "(i.status = 'overdue' OR (i.status IN ('issued', 'partially_paid', 'sent', 'partial') AND i.due_date < CURDATE()))";
     } else {
         $where[] = "i.status = ?";
         $params[] = $status;
@@ -56,11 +56,16 @@ if ($search !== '') {
 
 $whereClause = implode(' AND ', $where);
 $invoices = Database::fetchAll(
-    "SELECT i.*, c.name as customer_name, c.company_name, c.phone as customer_phone 
+    "SELECT i.*, 
+            i.total_amount as grand_total, 
+            i.paid_amount as amount_paid, 
+            i.balance_amount as outstanding, 
+            i.issue_date as invoice_date, 
+            c.name as customer_name, c.company_name, c.phone as customer_phone 
      FROM invoices i
      JOIN customers c ON i.customer_id = c.id
      WHERE {$whereClause}
-     ORDER BY i.invoice_date DESC",
+     ORDER BY i.issue_date DESC",
     $params
 );
 

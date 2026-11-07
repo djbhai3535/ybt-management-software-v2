@@ -48,15 +48,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 // Fetch active customers and unpaid invoices for recording
 $customers = Database::fetchAll("SELECT id, name, company_name, current_balance FROM customers WHERE business_id = ? ORDER BY name ASC", [$businessId]);
 $unpaidInvoices = Database::fetchAll(
-    "SELECT id, customer_id, invoice_number, outstanding FROM invoices 
-     WHERE business_id = ? AND status IN ('sent', 'partial', 'overdue', 'unpaid') AND outstanding > 0 
-     ORDER BY invoice_date DESC",
+    "SELECT id, customer_id, invoice_number, 
+            balance_amount as outstanding, 
+            issue_date as invoice_date 
+     FROM invoices 
+     WHERE business_id = ? AND status IN ('issued', 'partially_paid', 'sent', 'partial', 'overdue', 'unpaid') AND balance_amount > 0 
+     ORDER BY issue_date DESC",
     [$businessId]
 );
 
 // Fetch Payments List
 $payments = Database::fetchAll(
-    "SELECT p.*, c.name as customer_name, c.company_name, i.invoice_number, i.id as inv_id
+    "SELECT p.*, 
+            p.payment_method as method, 
+            p.reference_number as reference, 
+            c.name as customer_name, c.company_name, i.invoice_number, i.id as inv_id
      FROM payments p
      JOIN customers c ON p.customer_id = c.id
      LEFT JOIN payment_allocations pa ON p.id = pa.payment_id

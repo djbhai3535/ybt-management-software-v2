@@ -14,6 +14,7 @@ $activeShops = (int)Database::fetchColumn("SELECT COUNT(*) FROM businesses WHERE
 $suspendedShops = (int)Database::fetchColumn("SELECT COUNT(*) FROM businesses WHERE status = 'suspended'");
 $totalUsers = (int)Database::fetchColumn("SELECT COUNT(*) FROM users");
 $activeAnnouncements = (int)Database::fetchColumn("SELECT COUNT(*) FROM platform_announcements WHERE is_active = 1");
+$pendingSubs = (int)Database::fetchColumn("SELECT COUNT(*) FROM business_subscriptions WHERE status = 'pending_approval'");
 
 // Recent Registered Shops
 $recentShops = Database::fetchAll("SELECT * FROM businesses ORDER BY id DESC LIMIT 8");
@@ -38,7 +39,7 @@ require __DIR__ . '/header.php';
         </p>
     </div>
     <div class="d-flex gap-2">
-        <a href="<?= url('admin/announcements.php') ?>" class="btn btn-secondary btn-sm">
+        <a href="<?= url('admin/subscriptions.php') ?>" class="btn btn-warning btn-sm"><i class="ti ti-crown mr-1"></i> SaaS Subscriptions</a> <a href="<?= url('admin/announcements.php') ?>" class="btn btn-secondary btn-sm">
             <i class="ti ti-speakerphone mr-1"></i> New Announcement
         </a>
         <a href="<?= url('admin/tenants.php') ?>" class="btn btn-primary btn-sm">
@@ -46,6 +47,21 @@ require __DIR__ . '/header.php';
         </a>
     </div>
 </div>
+
+<?php if ($pendingSubs > 0): ?>
+<div class="alert alert-warning mb-4 d-flex justify-between align-center p-3 rounded" style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3);">
+    <div class="d-flex align-center gap-2">
+        <i class="ti ti-clock-pause fs-4 text-warning"></i>
+        <div>
+            <strong><?= $pendingSubs ?> Subscription Payment Proof(s) Awaiting Owner Approval</strong>
+            <div class="text-xs text-muted">Shopkeepers have submitted payment receipts for plan activations.</div>
+        </div>
+    </div>
+    <a href="<?= url('admin/subscriptions.php#pending') ?>" class="btn btn-warning btn-sm font-bold">
+        <i class="ti ti-arrow-right mr-1"></i> Review & Approve Payments
+    </a>
+</div>
+<?php endif; ?>
 
 <!-- Platform KPI Cards -->
 <div class="grid grid-cols-5 gap-3 mb-4">

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 60" width="240" height="60">
+  <defs>
+    <linearGradient id="djGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB" />
+      <stop offset="100%" stop-color="#1D4ED8" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#0284C7" />
+    </linearGradient>
+  </defs>
+
+  <!-- Logo Icon Badge -->
+  <rect x="6" y="6" width="48" height="48" rx="12" fill="url(#djGrad)" />
+  
+  <!-- Stylized Monogram DJ -->
+  <path d="M 20 18 L 27 18 C 32 18 35 21 35 26 C 35 31 32 34 27 34 L 20 34 Z" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linejoin="round" />
+  <path d="M 33 24 L 38 24 C 41 24 43 26 43 29 L 43 36 C 43 40 40 42 36 42 L 32 42" fill="none" stroke="url(#accentGrad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+
+  <!-- Brand Typography -->
+  <text x="64" y="32" font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="800" fill="currentColor" letter-spacing="-0.02em">
+    DJ <tspan fill="#2563EB">CRM</tspan>
+  </text>
+  <text x="64" y="47" font-family="'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10.5" font-weight="600" fill="#64748B" letter-spacing="0.08em">
+    BUSINESS MANAGEMENT
+  </text>
+</svg>

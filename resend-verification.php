@@ -88,12 +88,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'expires_at' => $expiresAt
                     ]);
 
-                    MailerService::sendVerificationOtp($email, $user['name'], $otp);
+                    $mailSent = MailerService::sendVerificationOtp($email, $user['name'], $otp);
 
                     ActivityLog::log($user['business_id'], $user['id'], 'resend_verification', 'user', $user['id'], "Verification code resent to {$email}");
 
-                    Flash::success("A new 6-digit verification code has been sent. Please enter it below.");
-                    header('Location: ' . url('verify-email.php?email=' . urlencode($email)));
+                    if ($mailSent) {
+                        Flash::success("A new 6-digit verification code has been sent. Please enter it below.");
+                    } else {
+                        Flash::warning("Could not deliver the verification code to your email. Please check your SMTP settings or try again.");
+                    }
+                    header('Location: ' . url('verify-email.php?email=' . urlencode($email) . '&notice=' . ($mailSent ? 'sent' : 'mail_failed')));
                     exit;
                 }
             }

@@ -44,8 +44,10 @@ class PdfService {
             <!-- Header Section -->
             <div class="invoice-header" style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0284c7; padding-bottom: 18px; margin-bottom: 20px;">
                 <div class="invoice-company" style="max-width: 60%;">
-                    <?php if (!empty($business['logo_path']) && file_exists(YBT_ROOT . '/' . ltrim($business['logo_path'], '/'))): ?>
-                        <img src="<?= url($business['logo_path']) ?>" alt="Logo" style="max-height: 50px; margin-bottom: 8px;">
+                    <?php 
+                    $shopLogo = $business['logo_url'] ?? $business['logo_path'] ?? null;
+                    if (!empty($shopLogo) && file_exists(YBT_ROOT . '/' . ltrim($shopLogo, '/'))): ?>
+                        <img src="<?= url($shopLogo) ?>" alt="Logo" style="max-height: 50px; max-width: 160px; object-fit: contain; margin-bottom: 8px;">
                     <?php endif; ?>
                     <h2 class="company-name" style="font-size: 22px; font-weight: 800; color: #0f172a; margin: 0;"><?= e($business['name']) ?></h2>
                     <?php if (!empty($business['tagline'])): ?>

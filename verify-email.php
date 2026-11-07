@@ -73,8 +73,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'expires_at' => $expiresAt
                     ]);
 
-                    MailerService::sendVerificationOtp($email, $user['name'], $otp);
-                    $success = 'A new 6-digit verification code has been dispatched to your email.';
+                    $mailSent = MailerService::sendVerificationOtp($email, $user['name'], $otp);
+                    if ($mailSent) {
+                        $success = 'A new 6-digit verification code has been dispatched to your email.';
+                    } else {
+                        $error = 'Failed to deliver verification code to your email. Please verify SMTP settings.';
+                    }
                     $resendCooldown = 60;
                 }
             }

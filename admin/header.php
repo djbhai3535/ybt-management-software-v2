@@ -13,13 +13,14 @@ $adminUser = Auth::user();
 $totalShopsCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM businesses");
 $suspendedShopsCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM businesses WHERE status = 'suspended'");
 $totalUsersCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM users");
+$pendingSubCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM business_subscriptions WHERE status = 'pending_approval'");
 ?>
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= e($pageTitle) ?> — YBT Super Admin</title>
+    <title><?= e($pageTitle) ?> — DJ CRM Super Admin</title>
     <link rel="stylesheet" href="<?= url('assets/css/main.css') ?>">
     <link rel="stylesheet" href="<?= url('assets/css/fonts/tabler-icons.css') ?>">
     <style>
@@ -106,8 +107,8 @@ $totalUsersCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM users");
                 <i class="ti ti-shield-lock"></i>
             </div>
             <div>
-                <div style="font-weight: 700; font-size: 1.1rem; line-height: 1.2;">YBT SAAS PLATFORM</div>
-                <div style="font-size: 0.72rem; color: #f59e0b; font-weight: 600; letter-spacing: 0.5px;">CENTRAL SUPER ADMIN PANEL</div>
+                <div style="font-weight: 700; font-size: 1.1rem; line-height: 1.2;">DJ CRM SOFTWARE</div>
+                <div style="font-size: 0.72rem; color: #f59e0b; font-weight: 600; letter-spacing: 0.5px;">CENTRAL SUPER ADMIN PORTAL</div>
             </div>
         </a>
 
@@ -121,8 +122,17 @@ $totalUsersCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM users");
                     <span class="admin-badge-count" title="Suspended Shops"><?= $suspendedShopsCount ?></span>
                 <?php endif; ?>
             </a>
+            <a href="<?= url('admin/subscriptions.php') ?>" class="admin-nav-link <?= $adminPage === 'subscriptions.php' ? 'active' : '' ?>">
+                <i class="ti ti-crown"></i> Subscriptions & Plans
+                <?php if ($pendingSubCount > 0): ?>
+                    <span class="admin-badge-count" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;" title="Pending Payments"><?= $pendingSubCount ?></span>
+                <?php endif; ?>
+            </a>
             <a href="<?= url('admin/users.php') ?>" class="admin-nav-link <?= $adminPage === 'users.php' ? 'active' : '' ?>">
                 <i class="ti ti-users"></i> Users & Staff
+            </a>
+            <a href="<?= url('admin/settings.php') ?>" class="admin-nav-link <?= $adminPage === 'settings.php' ? 'active' : '' ?>">
+                <i class="ti ti-adjustments-alt"></i> Platform & Central AI
             </a>
             <a href="<?= url('admin/announcements.php') ?>" class="admin-nav-link <?= $adminPage === 'announcements.php' ? 'active' : '' ?>">
                 <i class="ti ti-speakerphone"></i> Announcements

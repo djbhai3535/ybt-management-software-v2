@@ -79,12 +79,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'expires_at' => $expiresAt
                     ]);
 
-                    MailerService::sendPasswordResetOtp($email, $user['name'], $otp);
+                    $mailSent = MailerService::sendPasswordResetOtp($email, $user['name'], $otp);
 
                     ActivityLog::log($user['business_id'], $user['id'], 'password_reset_requested', 'user', $user['id'], "Password reset OTP requested for {$email}");
 
-                    Flash::success("A 6-digit password reset code has been sent to your email. Enter it below to reset your password.");
-                    header('Location: ' . url('reset-password.php?email=' . urlencode($email) . '&notice=sent'));
+                    if ($mailSent) {
+                        Flash::success("A 6-digit password reset code has been sent to your email. Enter it below to reset your password.");
+                    } else {
+                        Flash::warning("Could not deliver the password reset code to your email. Please check your SMTP settings or try again.");
+                    }
+                    header('Location: ' . url('reset-password.php?email=' . urlencode($email) . '&notice=' . ($mailSent ? 'sent' : 'mail_failed')));
                     exit;
                 }
             }

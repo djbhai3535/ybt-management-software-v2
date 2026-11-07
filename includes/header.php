@@ -26,8 +26,8 @@ if (Auth::check()) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <meta name="description" content="YBT Management Software — Advanced Business CRM, Billing, Invoicing & AI Analysis">
-    <meta name="author" content="YBT Technologies">
+    <meta name="description" content="DJ CRM Software — Advanced Business Management, Billing, Invoicing & Financial Khata">
+    <meta name="author" content="DJ CRM Software">
     <title><?= e($pageTitle) ?></title>
 
     <!-- Google Fonts: Inter -->

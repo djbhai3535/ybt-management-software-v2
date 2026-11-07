@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="djIconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB" />
+      <stop offset="100%" stop-color="#1D4ED8" />
+    </linearGradient>
+    <linearGradient id="accentIconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#0284C7" />
+    </linearGradient>
+  </defs>
+
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#djIconGrad)" />
+  
+  <!-- Stylized Monogram DJ -->
+  <path d="M 18 18 L 27 18 C 33 18 37 22 37 28 C 37 34 33 38 27 38 L 18 38 Z" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round" />
+  <path d="M 35 26 L 41 26 C 45 26 47 28 47 32 L 47 41 C 47 46 43 49 38 49 L 32 49" fill="none" stroke="url(#accentIconGrad)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

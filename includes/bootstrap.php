@@ -8,6 +8,54 @@ if (!defined('YBT_ROOT')) {
     define('YBT_ROOT', dirname(__DIR__));
 }
 
+// Global environment variable accessor (checks $_ENV, $_SERVER, and getenv)
+if (!function_exists('app_env')) {
+    function app_env(string $key, mixed $default = null): mixed {
+        if (isset($_ENV[$key]) && $_ENV[$key] !== '') {
+            return $_ENV[$key];
+        }
+        if (isset($_SERVER[$key]) && $_SERVER[$key] !== '') {
+            return $_SERVER[$key];
+        }
+        $val = getenv($key);
+        if ($val !== false && $val !== '') {
+            return $val;
+        }
+        return $default;
+    }
+}
+
+// Load environment variables from .env (check web root first, then parent directory if allowed)
+$envCandidates = [
+    YBT_ROOT . '/.env',           // Standard application root (e.g. public_html/.env)
+    dirname(YBT_ROOT) . '/.env', // 1 level above public_html (if permitted by open_basedir)
+];
+$envFile = null;
+foreach ($envCandidates as $candidate) {
+    if (@file_exists($candidate) && @is_readable($candidate)) {
+        $envFile = $candidate;
+        break;
+    }
+}
+if ($envFile !== null) {
+    $envLines = @file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if ($envLines !== false) {
+        foreach ($envLines as $line) {
+            $line = trim($line);
+            if ($line === '' || str_starts_with($line, '#')) continue;
+            if (strpos($line, '=') !== false) {
+                list($envKey, $envVal) = explode('=', $line, 2);
+                $envKey = trim($envKey);
+                $envVal = trim($envVal, " \t\n\r\0\x0B\"'");
+                // Always populate $_ENV, $_SERVER, and putenv
+                $_ENV[$envKey] = $envVal;
+                $_SERVER[$envKey] = $envVal;
+                @putenv("{$envKey}={$envVal}");
+            }
+        }
+    }
+}
+
 // Load configuration
 $config = require YBT_ROOT . '/config/config.php';
 
@@ -19,6 +67,10 @@ define('APP_URL', rtrim($config['app_url'], '/'));
 define('APP_NAME', $config['app_name']);
 define('APP_VERSION', $config['app_version']);
 define('APP_DEBUG', $config['debug']);
+if (!defined('CLOUD_SYNC_URL')) {
+    define('CLOUD_SYNC_URL', rtrim($config['cloud_sync_url'] ?? (getenv('CLOUD_SYNC_URL') ?: 'https://apkashow.com'), '/'));
+}
+define('WHATSAPP_SUPPORT_NUMBER', class_exists('PlatformSettings') ? PlatformSettings::getWhatsAppSupport() : ($config['whatsapp_support'] ?? '923000000000'));
 
 // Error reporting
 if ($config['debug']) {
@@ -64,9 +116,12 @@ require_once YBT_ROOT . '/includes/formatting.php';
 require_once YBT_ROOT . '/includes/flash.php';
 require_once YBT_ROOT . '/includes/csrf.php';
 require_once YBT_ROOT . '/includes/validation.php';
+require_once YBT_ROOT . '/includes/phone-validator.php';
 require_once YBT_ROOT . '/includes/activity-log.php';
 require_once YBT_ROOT . '/includes/auth.php';
 require_once YBT_ROOT . '/includes/permissions.php';
+require_once YBT_ROOT . '/services/platform-settings-service.php';
+require_once YBT_ROOT . '/services/subscription-service.php';
 
 // Auto-bind TenantContext if user session is active
 if (!empty($_SESSION['business_id']) && (int)$_SESSION['business_id'] > 0) {

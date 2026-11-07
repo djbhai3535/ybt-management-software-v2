@@ -30,11 +30,13 @@ $users = Database::fetchAll(
 // Financial & Activity Telemetry
 $customerCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM customers WHERE business_id = ?", [$shopId]);
 $invoiceCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM invoices WHERE business_id = ?", [$shopId]);
-$totalInvoiced = (float)Database::fetchColumn("SELECT COALESCE(SUM(grand_total), 0) FROM invoices WHERE business_id = ?", [$shopId]);
+$totalInvoiced = (float)Database::fetchColumn("SELECT COALESCE(SUM(total_amount), 0) FROM invoices WHERE business_id = ?", [$shopId]);
 $totalPaid = (float)Database::fetchColumn("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE business_id = ?", [$shopId]);
 $productCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM products WHERE business_id = ?", [$shopId]);
 
 $isSuspended = ($shop['status'] === 'suspended');
+$subInfo = SubscriptionService::getBusinessPlan($shopId);
+$allPlans = SubscriptionService::getAllPlansForAdmin();
 
 require __DIR__ . '/header.php';
 ?>
@@ -153,6 +155,66 @@ require __DIR__ . '/header.php';
                         <?php endif; ?>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- SaaS Subscription Card -->
+        <div class="card mb-4 card-glow-primary">
+            <div class="card-header d-flex justify-between align-center">
+                <h3 class="card-title text-primary"><i class="ti ti-crown mr-2"></i> SaaS Subscription</h3>
+                <span class="badge badge-<?= $subInfo['is_expired'] ? 'danger' : 'success' ?>">
+                    <?= strtoupper(e($subInfo['status'])) ?>
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <span class="text-muted text-xs d-block">Active Plan Tier</span>
+                    <div class="font-bold text-lg text-primary"><?= e($subInfo['plan_name']) ?></div>
+                </div>
+
+                <div class="mb-3 text-xs">
+                    <div>Staff Accounts: <strong><?= $subInfo['usage']['users'] ?> / <?= $subInfo['usage']['max_users'] ?></strong></div>
+                    <div>Customer Limit: <strong><?= $subInfo['usage']['customers'] ?> / <?= $subInfo['usage']['max_customers'] ?></strong></div>
+                    <div>Invoices / Mo: <strong><?= $subInfo['usage']['invoices_this_month'] ?> / <?= $subInfo['usage']['max_invoices'] ?></strong></div>
+                    <div>AI Manager: <strong><?= $subInfo['ai_enabled'] ? 'Active' : 'Disabled' ?></strong></div>
+                </div>
+
+                <div class="mb-3">
+                    <span class="text-muted text-xs d-block">Validity / Expiration Date</span>
+                    <div class="font-medium text-sm">
+                        <?= !empty($subInfo['expires_at']) ? date('d M Y, h:i A', strtotime($subInfo['expires_at'])) : 'Unlimited / Ongoing' ?>
+                    </div>
+                    <?php if (!empty($subInfo['expires_at'])): ?>
+                        <div class="text-xs text-muted"><?= $subInfo['is_expired'] ? 'Expired' : ($subInfo['days_remaining'] . ' days remaining') ?></div>
+                    <?php endif; ?>
+                </div>
+
+                <form method="POST" action="<?= url('admin/subscriptions.php') ?>" class="border-t pt-3">
+                    <?= Csrf::field() ?>
+                    <input type="hidden" name="action" value="assign_plan">
+                    <input type="hidden" name="business_id" value="<?= $shopId ?>">
+
+                    <label class="form-label text-xs font-bold mb-1">Modify Plan / Extend Expiry</label>
+                    <div class="d-flex gap-2 mb-2">
+                        <select name="plan_slug" class="form-select form-select-sm flex-1">
+                            <?php foreach ($allPlans as $pl): ?>
+                                <option value="<?= $pl['slug'] ?>" <?= ($pl['slug'] === $subInfo['plan_slug']) ? 'selected' : '' ?>>
+                                    <?= e($pl['name']) ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <select name="duration_months" class="form-select form-select-sm" style="width: 110px;">
+                            <option value="1">+1 Month</option>
+                            <option value="3">+3 Months</option>
+                            <option value="6">+6 Months</option>
+                            <option value="12" selected>+1 Year</option>
+                            <option value="24">+2 Years</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                        <i class="ti ti-check mr-1"></i> Update & Extend Plan
+                    </button>
+                </form>
             </div>
         </div>
     </div>

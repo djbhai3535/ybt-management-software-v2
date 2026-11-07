@@ -34,9 +34,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 'description' => $desc,
                 'amount' => $amount,
                 'expense_date' => $_POST['expense_date'] ?? date('Y-m-d'),
+                'payment_method' => $_POST['method'] ?? 'bank_transfer',
                 'method' => $_POST['method'] ?? 'bank_transfer',
+                'payee' => trim($_POST['vendor'] ?? ''),
                 'vendor' => trim($_POST['vendor'] ?? ''),
+                'reference_number' => trim($_POST['reference'] ?? ''),
                 'reference' => trim($_POST['reference'] ?? ''),
+                'is_deleted' => 0,
                 'status' => 'active',
                 'created_by' => $userId
             ]);
@@ -54,10 +58,15 @@ $categories = Database::fetchAll("SELECT * FROM expense_categories WHERE busines
 
 // Fetch Expenses List
 $expenses = Database::fetchAll(
-    "SELECT e.*, c.name as category_name, c.color as category_color
+    "SELECT e.*, 
+            e.payee as vendor, 
+            e.payment_method as method, 
+            e.reference_number as reference, 
+            c.name as category_name, 
+            '' as category_color
      FROM expenses e
-     JOIN expense_categories c ON e.category_id = c.id
-     WHERE e.business_id = ? AND e.status = 'active'
+     LEFT JOIN expense_categories c ON e.category_id = c.id
+     WHERE e.business_id = ? AND e.is_deleted = 0
      ORDER BY e.expense_date DESC",
     [$businessId]
 );

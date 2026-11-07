@@ -1,7 +1,7 @@
 {
-  "name": "ybt-management-desktop",
-  "version": "1.0.0",
-  "description": "YBT Management Software — Commercial Windows Desktop Edition",
+  "name": "dj-crm-desktop",
+  "version": "1.0.2",
+  "description": "DJ CRM Software — Commercial Windows Desktop Edition",
   "private": true,
   "scripts": {
     "dev": "tauri dev",

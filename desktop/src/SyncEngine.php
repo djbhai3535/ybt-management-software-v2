@@ -405,7 +405,9 @@ class SyncEngine {
             ];
         }
 
-        $url = rtrim($cloudApiUrl, '/') . '/api/v1/sync';
+        $url = str_contains($cloudApiUrl, 'index.php')
+            ? (rtrim($cloudApiUrl, '/') . (str_contains($cloudApiUrl, '?') ? '&route=/sync' : '?route=/sync'))
+            : (rtrim($cloudApiUrl, '/') . '/api/v1/index.php?route=/sync');
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
@@ -454,12 +456,19 @@ class SyncEngine {
 
                 if ($opRecord) {
                     $table = strtolower($opRecord['entity_type']);
-                    $validTables = ['customers', 'products', 'invoices', 'payments', 'expenses'];
+                    $validTables = ['customers', 'products', 'invoices', 'payments', 'expenses', 'customer_ledger'];
                     if (in_array($table, $validTables, true)) {
-                        $this->sqlite->query(
-                            "UPDATE `{$table}` SET `sync_status` = 'synced', `updated_at` = datetime('now') WHERE `uuid` = ?",
-                            [$opRecord['entity_uuid']]
-                        );
+                        if ($table === 'customer_ledger') {
+                            $this->sqlite->query(
+                                "UPDATE `customer_ledger` SET `sync_status` = 'synced', `updated_at` = datetime('now') WHERE `uuid` = ? OR `sync_uuid` = ?",
+                                [$opRecord['entity_uuid'], $opRecord['entity_uuid']]
+                            );
+                        } else {
+                            $this->sqlite->query(
+                                "UPDATE `{$table}` SET `sync_status` = 'synced', `updated_at` = datetime('now') WHERE `uuid` = ?",
+                                [$opRecord['entity_uuid']]
+                            );
+                        }
                     }
                 }
                 $syncedCount++;
@@ -480,7 +489,9 @@ class SyncEngine {
         $metaRow = $this->sqlite->fetch("SELECT value FROM `sync_metadata` WHERE `key` = 'last_sync_version'");
         $sinceVersion = $metaRow ? (int)$metaRow['value'] : 0;
 
-        $url = rtrim($cloudApiUrl, '/') . '/api/v1/sync?since_version=' . $sinceVersion;
+        $url = str_contains($cloudApiUrl, 'index.php')
+            ? (rtrim($cloudApiUrl, '/') . (str_contains($cloudApiUrl, '?') ? '&' : '?') . 'route=/sync&since_version=' . $sinceVersion)
+            : (rtrim($cloudApiUrl, '/') . '/api/v1/index.php?route=/sync&since_version=' . $sinceVersion);
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
@@ -559,43 +570,46 @@ class SyncEngine {
             // 2. Process Products
             foreach ($entities['products'] ?? [] as $p) {
                 $cloudId = (int)$p['id'];
-                $uuid = $p['sync_uuid'] ?: ('cloud_prod_' . $cloudId);
+                $uuid = $p['sync_uuid'] ?: ($p['uuid'] ?: ('cloud_prod_' . $cloudId));
 
                 $existing = $this->sqlite->fetch(
-                    "SELECT id FROM `products` WHERE `uuid` = ? OR `cloud_id` = ?",
-                    [$uuid, $cloudId]
+                    "SELECT id FROM `products` WHERE `uuid` = ? OR `sync_uuid` = ? OR `cloud_id` = ?",
+                    [$uuid, $uuid, $cloudId]
                 );
 
+                $prodFields = [
+                    'cloud_id' => $cloudId,
+                    'name' => $p['name'],
+                    'category' => $p['category'] ?? 'General',
+                    'part_type' => $p['part_type'] ?? ($p['category'] ?? 'General'),
+                    'brand' => $p['brand'] ?? null,
+                    'model' => $p['model'] ?? null,
+                    'sku' => $p['sku'] ?? '',
+                    'barcode' => $p['barcode'] ?? '',
+                    'selling_price' => (float)$p['selling_price'],
+                    'purchase_price' => (float)($p['cost_price'] ?? ($p['purchase_price'] ?? 0.0)),
+                    'cost_price' => (float)($p['cost_price'] ?? ($p['purchase_price'] ?? 0.0)),
+                    'tax_rate' => (float)($p['tax_rate'] ?? 0.0),
+                    'stock_quantity' => (float)($p['stock_quantity'] ?? 0),
+                    'min_stock_alert' => (int)($p['min_stock_alert'] ?? 5),
+                    'unit' => $p['unit'] ?? 'pcs',
+                    'supplier_name' => $p['supplier_name'] ?? null,
+                    'allow_negative_stock' => !empty($p['allow_negative_stock']) ? 1 : 0,
+                    'description' => $p['description'] ?? null,
+                    'status' => $p['status'] ?? 'active',
+                    'sync_status' => 'synced',
+                    'sync_version' => (int)($p['sync_version'] ?? 1),
+                    'updated_at' => $p['updated_at'] ?? date('Y-m-d H:i:s')
+                ];
+
                 if ($existing) {
-                    $this->sqlite->update('products', [
-                        'cloud_id' => $cloudId,
-                        'name' => $p['name'],
-                        'category' => $p['category'] ?? 'General',
-                        'sku' => $p['sku'] ?? '',
-                        'selling_price' => (float)$p['selling_price'],
-                        'purchase_price' => (float)($p['cost_price'] ?? 0.0),
-                        'tax_rate' => (float)($p['tax_rate'] ?? 0.0),
-                        'unit' => $p['unit'] ?? 'pcs',
-                        'sync_status' => 'synced',
-                        'updated_at' => $p['updated_at'] ?? date('Y-m-d H:i:s')
-                    ], 'id = ?', [$existing['id']]);
+                    $this->sqlite->update('products', $prodFields, 'id = ?', [$existing['id']]);
                 } else {
-                    $this->sqlite->insert('products', [
-                        'uuid' => $uuid,
-                        'cloud_id' => $cloudId,
-                        'business_id' => $businessId,
-                        'name' => $p['name'],
-                        'category' => $p['category'] ?? 'General',
-                        'sku' => $p['sku'] ?? '',
-                        'barcode' => '',
-                        'purchase_price' => (float)($p['cost_price'] ?? 0.0),
-                        'selling_price' => (float)$p['selling_price'],
-                        'tax_rate' => (float)($p['tax_rate'] ?? 0.0),
-                        'unit' => $p['unit'] ?? 'pcs',
-                        'sync_status' => 'synced',
-                        'created_at' => $p['created_at'] ?? date('Y-m-d H:i:s'),
-                        'updated_at' => $p['updated_at'] ?? date('Y-m-d H:i:s')
-                    ]);
+                    $prodFields['uuid'] = $uuid;
+                    $prodFields['sync_uuid'] = $uuid;
+                    $prodFields['business_id'] = $businessId;
+                    $prodFields['created_at'] = $p['created_at'] ?? date('Y-m-d H:i:s');
+                    $this->sqlite->insert('products', $prodFields);
                 }
                 $applied++;
             }
@@ -725,6 +739,142 @@ class SyncEngine {
                 $applied++;
             }
 
+            // 6. Process Customer Ledger (Khata Entries: You Gave / You Got)
+            foreach ($entities['customer_ledger'] ?? [] as $ldg) {
+                $cloudId = (int)($ldg['id'] ?? 0);
+                $uuid = $ldg['sync_uuid'] ?: ($ldg['uuid'] ?: ('cloud_ldg_' . $cloudId));
+                $idempKey = !empty($ldg['idempotency_key']) ? trim($ldg['idempotency_key']) : null;
+
+                // Dedup check: never duplicate historical ledger entries
+                $existing = null;
+                if ($idempKey !== null && $idempKey !== '') {
+                    $existing = $this->sqlite->fetch(
+                        "SELECT id FROM `customer_ledger` WHERE `business_id` = ? AND (`sync_uuid` = ? OR `idempotency_key` = ?)",
+                        [$businessId, $uuid, $idempKey]
+                    );
+                } else {
+                    $existing = $this->sqlite->fetch(
+                        "SELECT id FROM `customer_ledger` WHERE `business_id` = ? AND `sync_uuid` = ?",
+                        [$businessId, $uuid]
+                    );
+                }
+
+                if (!$existing) {
+                    // Resolve local customer
+                    $localCustId = null;
+                    $currBal = 0.0;
+                    if (!empty($ldg['customer_uuid'])) {
+                        $cRow = $this->sqlite->fetch(
+                            "SELECT id, current_balance FROM `customers` WHERE `business_id` = ? AND (`uuid` = ? OR `sync_uuid` = ?)",
+                            [$businessId, $ldg['customer_uuid'], $ldg['customer_uuid']]
+                        );
+                        if ($cRow) {
+                            $localCustId = (int)$cRow['id'];
+                            $currBal = (float)$cRow['current_balance'];
+                        }
+                    }
+                    if (!$localCustId && !empty($ldg['customer_id'])) {
+                        $cRow = $this->sqlite->fetch(
+                            "SELECT id, current_balance FROM `customers` WHERE `business_id` = ? AND `id` = ?",
+                            [$businessId, (int)$ldg['customer_id']]
+                        );
+                        if ($cRow) {
+                            $localCustId = (int)$cRow['id'];
+                            $currBal = (float)$cRow['current_balance'];
+                        }
+                    }
+
+                    if ($localCustId) {
+                        $debit = (float)($ldg['debit'] ?? 0.0);
+                        $credit = (float)($ldg['credit'] ?? 0.0);
+                        $newBal = $currBal + $debit - $credit;
+
+                        $this->sqlite->insert('customer_ledger', [
+                            'uuid' => $uuid,
+                            'sync_uuid' => $uuid,
+                            'business_id' => $businessId,
+                            'customer_id' => $localCustId,
+                            'entry_type' => $ldg['entry_type'] ?? 'you_gave',
+                            'reference_type' => $ldg['reference_type'] ?? null,
+                            'reference_id' => !empty($ldg['reference_id']) ? (int)$ldg['reference_id'] : null,
+                            'reference_number' => $ldg['reference_number'] ?? null,
+                            'entry_date' => $ldg['entry_date'] ?? date('Y-m-d'),
+                            'debit' => $debit,
+                            'credit' => $credit,
+                            'running_balance' => $newBal,
+                            'payment_method' => $ldg['payment_method'] ?? 'cash',
+                            'description' => $ldg['description'] ?? '',
+                            'notes' => $ldg['notes'] ?? '',
+                            'item_details' => $ldg['item_details'] ?? null,
+                            'image_attachment' => $ldg['image_attachment'] ?? null,
+                            'voice_attachment' => $ldg['voice_attachment'] ?? null,
+                            'idempotency_key' => $idempKey,
+                            'sync_status' => 'synced',
+                            'sync_version' => (int)($ldg['sync_version'] ?? 1),
+                            'created_at' => $ldg['created_at'] ?? date('Y-m-d H:i:s'),
+                            'updated_at' => $ldg['updated_at'] ?? date('Y-m-d H:i:s')
+                        ]);
+
+                        $this->sqlite->query(
+                            "UPDATE `customers` SET `current_balance` = ?, `updated_at` = datetime('now') WHERE `id` = ? AND `business_id` = ?",
+                            [$newBal, $localCustId, $businessId]
+                        );
+                        $applied++;
+                    }
+                }
+            }
+
+            // 7. Process Stock Movements
+            foreach ($entities['stock_movements'] ?? [] as $sm) {
+                $uuid = $sm['uuid'] ?: ($sm['sync_uuid'] ?? '');
+                if (!$uuid) continue;
+
+                $idempKey = !empty($sm['idempotency_key']) ? trim($sm['idempotency_key']) : null;
+                $existing = null;
+                if ($idempKey !== null && $idempKey !== '') {
+                    $existing = $this->sqlite->fetch(
+                        "SELECT id FROM `stock_movements` WHERE `business_id` = ? AND (`uuid` = ? OR `sync_uuid` = ? OR `idempotency_key` = ?)",
+                        [$businessId, $uuid, $uuid, $idempKey]
+                    );
+                } else {
+                    $existing = $this->sqlite->fetch(
+                        "SELECT id FROM `stock_movements` WHERE `business_id` = ? AND (`uuid` = ? OR `sync_uuid` = ?)",
+                        [$businessId, $uuid, $uuid]
+                    );
+                }
+
+                if (!$existing) {
+                    $prodLocalId = null;
+                    if (!empty($sm['product_uuid'])) {
+                        $pRow = $this->sqlite->fetch("SELECT id FROM `products` WHERE `business_id` = ? AND (`uuid` = ? OR `sync_uuid` = ?)", [$businessId, $sm['product_uuid'], $sm['product_uuid']]);
+                        if ($pRow) $prodLocalId = (int)$pRow['id'];
+                    }
+
+                    if ($prodLocalId) {
+                        $this->sqlite->insert('stock_movements', [
+                            'uuid' => $uuid,
+                            'sync_uuid' => $uuid,
+                            'business_id' => $businessId,
+                            'product_id' => $prodLocalId,
+                            'type' => $sm['type'] ?? 'adjustment',
+                            'quantity' => (float)($sm['quantity'] ?? 0),
+                            'quantity_before' => (float)($sm['quantity_before'] ?? 0),
+                            'quantity_after' => (float)($sm['quantity_after'] ?? 0),
+                            'reference_type' => $sm['reference_type'] ?? null,
+                            'reference_id' => !empty($sm['reference_id']) ? (int)$sm['reference_id'] : null,
+                            'reference_number' => $sm['reference_number'] ?? null,
+                            'notes' => $sm['notes'] ?? null,
+                            'idempotency_key' => $idempKey,
+                            'sync_status' => 'synced',
+                            'sync_version' => (int)($sm['sync_version'] ?? 1),
+                            'created_by' => !empty($sm['created_by']) ? (int)$sm['created_by'] : null,
+                            'created_at' => $sm['created_at'] ?? date('Y-m-d H:i:s')
+                        ]);
+                        $applied++;
+                    }
+                }
+            }
+
             // Update local sync cursor
             $this->sqlite->query(
                 "INSERT INTO `sync_metadata` (`key`, `value`, `updated_at`) 
@@ -747,6 +897,125 @@ class SyncEngine {
             }
             error_log('Sync pull application error: ' . $e->getMessage());
             return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+
+    /**
+     * 6. Record a customer ledger entry offline inside SQLite and enqueue pending sync operation
+     */
+    public function recordLedgerOffline(int $businessId, string $deviceId, array $data): array {
+        $ledgerUuid = $this->generateUuid();
+        $operationUuid = $this->generateUuid();
+        $now = date('Y-m-d H:i:s');
+
+        $db = $this->sqlite->getPdo();
+        $db->beginTransaction();
+
+        try {
+            $customerId = (int)($data['customer_id'] ?? 0);
+            $custRow = $this->sqlite->fetch("SELECT uuid, current_balance FROM `customers` WHERE `id` = ? AND `business_id` = ?", [$customerId, $businessId]);
+            if (!$custRow) {
+                throw new Exception("Customer #{$customerId} not found in local database.");
+            }
+
+            $custUuid = $custRow['uuid'];
+            $currBal = (float)$custRow['current_balance'];
+            $debit = (float)($data['debit'] ?? 0.0);
+            $credit = (float)($data['credit'] ?? 0.0);
+            $newBal = $currBal + $debit - $credit;
+            $idempKey = !empty($data['idempotency_key']) ? trim($data['idempotency_key']) : null;
+
+            if ($idempKey !== null && $idempKey !== '') {
+                $existing = $this->sqlite->fetch("SELECT id FROM `customer_ledger` WHERE `business_id` = ? AND `idempotency_key` = ?", [$businessId, $idempKey]);
+                if ($existing) {
+                    $db->commit();
+                    return [
+                        'success' => true,
+                        'already_recorded' => true,
+                        'ledger_id' => (int)$existing['id']
+                    ];
+                }
+            }
+
+            $localId = $this->sqlite->insert('customer_ledger', [
+                'uuid' => $ledgerUuid,
+                'sync_uuid' => $ledgerUuid,
+                'business_id' => $businessId,
+                'customer_id' => $customerId,
+                'entry_type' => $data['entry_type'] ?? 'you_gave',
+                'reference_type' => $data['reference_type'] ?? null,
+                'reference_id' => !empty($data['reference_id']) ? (int)$data['reference_id'] : null,
+                'reference_number' => $data['reference_number'] ?? null,
+                'entry_date' => $data['entry_date'] ?? date('Y-m-d'),
+                'debit' => $debit,
+                'credit' => $credit,
+                'running_balance' => $newBal,
+                'payment_method' => $data['payment_method'] ?? 'cash',
+                'description' => trim($data['description'] ?? ''),
+                'notes' => trim($data['notes'] ?? ''),
+                'item_details' => $data['item_details'] ?? null,
+                'image_attachment' => $data['image_attachment'] ?? null,
+                'voice_attachment' => $data['voice_attachment'] ?? null,
+                'idempotency_key' => $idempKey,
+                'sync_status' => 'pending',
+                'sync_version' => 1,
+                'created_at' => $now,
+                'updated_at' => $now
+            ]);
+
+            $this->sqlite->query(
+                "UPDATE `customers` SET `current_balance` = ?, `updated_at` = datetime('now') WHERE `id` = ? AND `business_id` = ?",
+                [$newBal, $customerId, $businessId]
+            );
+
+            $payload = [
+                'customer_id' => $customerId,
+                'customer_uuid' => $custUuid ?: null,
+                'entry_type' => $data['entry_type'] ?? 'you_gave',
+                'debit' => $debit,
+                'credit' => $credit,
+                'entry_date' => $data['entry_date'] ?? date('Y-m-d'),
+                'reference_type' => $data['reference_type'] ?? null,
+                'reference_id' => !empty($data['reference_id']) ? (int)$data['reference_id'] : null,
+                'reference_number' => $data['reference_number'] ?? null,
+                'description' => trim($data['description'] ?? ''),
+                'notes' => trim($data['notes'] ?? ''),
+                'payment_method' => $data['payment_method'] ?? 'cash',
+                'idempotency_key' => $idempKey,
+                'item_details' => $data['item_details'] ?? null,
+                'image_attachment' => $data['image_attachment'] ?? null,
+                'voice_attachment' => $data['voice_attachment'] ?? null
+            ];
+
+            $this->sqlite->insert('pending_operations', [
+                'operation_uuid' => $operationUuid,
+                'business_id' => $businessId,
+                'device_id' => $deviceId,
+                'entity_type' => 'customer_ledger',
+                'entity_uuid' => $ledgerUuid,
+                'operation_type' => 'insert',
+                'payload_json' => json_encode($payload),
+                'retry_count' => 0,
+                'status' => 'pending',
+                'created_at' => $now
+            ]);
+
+            $db->commit();
+
+            return [
+                'success' => true,
+                'local_id' => $localId,
+                'uuid' => $ledgerUuid,
+                'operation_uuid' => $operationUuid,
+                'sync_status' => 'pending'
+            ];
+        } catch (\Throwable $t) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            error_log('Offline ledger creation error: ' . $t->getMessage());
+            return ['success' => false, 'error' => $t->getMessage()];
         }
     }
 

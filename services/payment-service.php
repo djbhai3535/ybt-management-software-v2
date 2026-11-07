@@ -21,7 +21,7 @@ class PaymentService {
      * Allocate payment amount to an invoice and recalculate invoice status
      */
     public static function allocateToInvoice(int $paymentId, int $invoiceId, float $amount, int $businessId): void {
-        $inv = Database::fetch("SELECT * FROM invoices WHERE id = ? AND business_id = ?", [$invoiceId, $businessId]);
+        $inv = Database::fetch("SELECT *, total_amount as grand_total, paid_amount as amount_paid, balance_amount as outstanding FROM invoices WHERE id = ? AND business_id = ?", [$invoiceId, $businessId]);
         if (!$inv) return;
 
         // Insert allocation
@@ -35,18 +35,19 @@ class PaymentService {
         // Recompute invoice paid & outstanding
         $allocRow = Database::fetch("SELECT COALESCE(SUM(amount), 0) as total FROM payment_allocations WHERE invoice_id = ?", [$invoiceId]);
         $totalPaid = (float)($allocRow['total'] ?? 0);
-        $outstanding = max(0.0, (float)$inv['grand_total'] - $totalPaid);
+        $grandTotal = (float)($inv['total_amount'] ?? $inv['grand_total'] ?? 0);
+        $outstanding = max(0.0, $grandTotal - $totalPaid);
 
-        $newStatus = 'sent';
+        $newStatus = 'issued';
         if ($outstanding <= 0.009) {
             $newStatus = 'paid';
         } elseif ($totalPaid > 0) {
-            $newStatus = 'partial';
+            $newStatus = 'partially_paid';
         }
 
         Database::query(
-            "UPDATE invoices SET amount_paid = ?, outstanding = ?, status = ?, updated_at = datetime('now') WHERE id = ?",
-            [$totalPaid, $outstanding, $newStatus, $invoiceId]
+            "UPDATE invoices SET paid_amount = ?, balance_amount = ?, status = ?, updated_at = ? WHERE id = ?",
+            [$totalPaid, $outstanding, $newStatus, date('Y-m-d H:i:s'), $invoiceId]
         );
     }
 }

@@ -15,6 +15,9 @@ storage/ai-cache/*
 !storage/ai-cache/.gitkeep
 
 # Sensitive or Local Environment
+.env
+.env.*
+!.env.example
 config/config.local.php
 *.log
 
@@ -23,6 +26,13 @@ desktop/node_modules/
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
 storage/desktop/*.sqlite*
+
+# Build Packages & Scratch
+*.zip
+*.exe
+scratch/
+temp-orig-compare/
+desktop/clean_storage/
 
 # OS & Editor Files
 .DS_Store
