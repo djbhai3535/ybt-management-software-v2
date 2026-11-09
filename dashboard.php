@@ -13,6 +13,71 @@ $businessId = Auth::businessId();
 $exec = ReportService::getExecutiveSummary($businessId);
 $monthlyTrends = ReportService::getMonthlyTrends($businessId, 6);
 
+// 1. Core Shop & Customer Statistics (Strictly Tenant-Isolated)
+$totalCustomers = (int)Database::fetchColumn(
+    "SELECT COUNT(*) FROM customers WHERE business_id = ?",
+    [$businessId]
+);
+
+$totalProducts = (int)Database::fetchColumn(
+    "SELECT COUNT(*) FROM products WHERE business_id = ?",
+    [$businessId]
+);
+
+$totalStockQty = (float)Database::fetchColumn(
+    "SELECT COALESCE(SUM(current_stock), 0) FROM products WHERE business_id = ?",
+    [$businessId]
+);
+
+// 2. Real Customer Ledger Financials (Strictly respects debit/credit accounting)
+// Customer Receivables: Sum of money customers owe the shop (current_balance > 0)
+$totalReceivables = (float)Database::fetchColumn(
+    "SELECT COALESCE(SUM(current_balance), 0) FROM customers WHERE business_id = ? AND current_balance > 0",
+    [$businessId]
+);
+$debtorCustomersCount = (int)Database::fetchColumn(
+    "SELECT COUNT(*) FROM customers WHERE business_id = ? AND current_balance > 0",
+    [$businessId]
+);
+
+// Customer Payables: Sum of customer advances/credits (current_balance < 0)
+$totalPayables = (float)Database::fetchColumn(
+    "SELECT COALESCE(ABS(SUM(current_balance)), 0) FROM customers WHERE business_id = ? AND current_balance < 0",
+    [$businessId]
+);
+$advanceCustomersCount = (int)Database::fetchColumn(
+    "SELECT COUNT(*) FROM customers WHERE business_id = ? AND current_balance < 0",
+    [$businessId]
+);
+
+// Net Customer Balance Position
+$netKhataBalance = $totalReceivables - $totalPayables;
+
+// 3. Khata Direct Entry Totals (You Gave & You Got)
+$youGaveStats = Database::fetch(
+    "SELECT COUNT(*) as count, COALESCE(SUM(debit), 0) as total 
+     FROM customer_ledger 
+     WHERE business_id = ? AND entry_type = 'you_gave'",
+    [$businessId]
+) ?: ['count' => 0, 'total' => 0.0];
+
+$youGotStats = Database::fetch(
+    "SELECT COUNT(*) as count, COALESCE(SUM(credit), 0) as total 
+     FROM customer_ledger 
+     WHERE business_id = ? AND entry_type = 'you_got'",
+    [$businessId]
+) ?: ['count' => 0, 'total' => 0.0];
+
+// 4. Recent Live Khata Transactions
+$recentKhataEntries = Database::fetchAll(
+    "SELECT cl.*, c.name as customer_name, c.phone as customer_phone 
+     FROM customer_ledger cl
+     JOIN customers c ON cl.customer_id = c.id
+     WHERE cl.business_id = ?
+     ORDER BY cl.entry_date DESC, cl.id DESC LIMIT 6",
+    [$businessId]
+);
+
 // Overdue Invoices
 $overdueInvoices = Database::fetchAll(
     "SELECT i.*, 
@@ -128,14 +193,81 @@ try {
 </div>
 <?php endif; ?>
 
-<!-- KPI Cards Grid -->
+<!-- Section: Customer Khata Financial Overview -->
+<div class="mb-4">
+    <div class="d-flex justify-between align-center mb-2">
+        <h3 class="text-sm font-bold text-muted uppercase tracking-wider mb-0">
+            <i class="ti ti-scale mr-1 text-primary"></i> Customer Khata & Balances
+        </h3>
+        <span class="text-xs text-muted">Real-time debit & credit balances across all customers</span>
+    </div>
+    <div class="kpi-grid">
+        <!-- Khata 1: Receivables -->
+        <div class="kpi-card card-glow-danger" style="border-top: 3px solid #ef4444;">
+            <div class="kpi-card-header">
+                <span class="kpi-title font-semibold text-danger">Customers Owe You (Receivable)</span>
+                <div class="kpi-icon-badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;">
+                    <i class="ti ti-arrow-up-right"></i>
+                </div>
+            </div>
+            <div class="kpi-value text-danger"><?= formatCurrency($totalReceivables) ?></div>
+            <div class="kpi-footer text-xs">
+                <span class="text-muted"><?= $debtorCustomersCount ?> customer(s) with outstanding dues</span>
+            </div>
+        </div>
+
+        <!-- Khata 2: Payables (Customer Advance) -->
+        <div class="kpi-card card-glow-success" style="border-top: 3px solid #10b981;">
+            <div class="kpi-card-header">
+                <span class="kpi-title font-semibold text-success">Customer Advance (Payable)</span>
+                <div class="kpi-icon-badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">
+                    <i class="ti ti-arrow-down-left"></i>
+                </div>
+            </div>
+            <div class="kpi-value text-success"><?= formatCurrency($totalPayables) ?></div>
+            <div class="kpi-footer text-xs">
+                <span class="text-muted"><?= $advanceCustomersCount ?> customer(s) with credit advances</span>
+            </div>
+        </div>
+
+        <!-- Khata 3: Total You Gave -->
+        <div class="kpi-card card-glow-warning" style="border-top: 3px solid #f59e0b;">
+            <div class="kpi-card-header">
+                <span class="kpi-title font-semibold">Total You Gave</span>
+                <div class="kpi-icon-badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
+                    <i class="ti ti-receipt-2"></i>
+                </div>
+            </div>
+            <div class="kpi-value"><?= formatCurrency($youGaveStats['total']) ?></div>
+            <div class="kpi-footer text-xs">
+                <span class="text-muted"><?= $youGaveStats['count'] ?> direct debit transaction(s)</span>
+            </div>
+        </div>
+
+        <!-- Khata 4: Total You Got -->
+        <div class="kpi-card card-glow-info" style="border-top: 3px solid #3b82f6;">
+            <div class="kpi-card-header">
+                <span class="kpi-title font-semibold">Total You Got</span>
+                <div class="kpi-icon-badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6;">
+                    <i class="ti ti-cash"></i>
+                </div>
+            </div>
+            <div class="kpi-value text-info"><?= formatCurrency($youGotStats['total']) ?></div>
+            <div class="kpi-footer text-xs">
+                <span class="text-muted"><?= $youGotStats['count'] ?> direct collection(s) recorded</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Section: Operations & Invoicing Financials -->
 <div class="kpi-grid mb-4">
     <!-- Card 1: Revenue -->
     <div class="kpi-card card-glow-primary">
         <div class="kpi-card-header">
-            <span class="kpi-title">Total Collected</span>
+            <span class="kpi-title">Invoiced Collections</span>
             <div class="kpi-icon-badge bg-primary-subtle text-primary">
-                <i class="ti ti-cash"></i>
+                <i class="ti ti-receipt"></i>
             </div>
         </div>
         <div class="kpi-value"><?= formatCurrency($exec['total_collected']) ?></div>
@@ -147,7 +279,7 @@ try {
     <!-- Card 2: Receivables -->
     <div class="kpi-card card-glow-warning">
         <div class="kpi-card-header">
-            <span class="kpi-title">Outstanding Receivables</span>
+            <span class="kpi-title">Invoice Receivables</span>
             <div class="kpi-icon-badge bg-warning-subtle text-warning">
                 <i class="ti ti-clock-dollar"></i>
             </div>
@@ -158,33 +290,31 @@ try {
         </div>
     </div>
 
-    <!-- Card 3: Net Profit -->
-    <div class="kpi-card card-glow-success">
+    <!-- Card 3: Customers -->
+    <div class="kpi-card card-glow-secondary">
         <div class="kpi-card-header">
-            <span class="kpi-title">Net Operating Profit</span>
-            <div class="kpi-icon-badge bg-success-subtle text-success">
-                <i class="ti ti-chart-arrows-vertical"></i>
+            <span class="kpi-title">Total Customers</span>
+            <div class="kpi-icon-badge bg-secondary-subtle text-secondary">
+                <i class="ti ti-users"></i>
             </div>
         </div>
-        <div class="kpi-value <?= $exec['net_profit'] >= 0 ? 'text-success' : 'text-danger' ?>">
-            <?= formatCurrency($exec['net_profit']) ?>
-        </div>
+        <div class="kpi-value text-secondary"><?= number_format($totalCustomers) ?></div>
         <div class="kpi-footer text-xs">
-            <span class="badge badge-success"><?= $exec['profit_margin'] ?>% Net Margin</span>
+            <a href="<?= url('customers.php') ?>" class="text-primary font-medium">Manage Customer Khatas &rarr;</a>
         </div>
     </div>
 
-    <!-- Card 4: Deal Pipeline -->
-    <div class="kpi-card card-glow-secondary">
+    <!-- Card 4: Inventory Items -->
+    <div class="kpi-card card-glow-success">
         <div class="kpi-card-header">
-            <span class="kpi-title">Active Deal Pipeline</span>
-            <div class="kpi-icon-badge bg-secondary-subtle text-secondary">
-                <i class="ti ti-filter-star"></i>
+            <span class="kpi-title">Products & Inventory</span>
+            <div class="kpi-icon-badge bg-success-subtle text-success">
+                <i class="ti ti-package"></i>
             </div>
         </div>
-        <div class="kpi-value text-secondary"><?= formatCurrency($exec['total_pipeline']) ?></div>
+        <div class="kpi-value text-success"><?= number_format($totalProducts) ?></div>
         <div class="kpi-footer text-xs">
-            <span class="text-muted"><?= $exec['active_leads'] ?> prospective leads</span>
+            <span class="text-muted"><?= number_format($totalStockQty) ?> total units in stock</span>
         </div>
     </div>
 </div>
@@ -220,6 +350,83 @@ try {
 <div class="grid grid-cols-3 gap-4">
     <!-- Left Column: Overdue Invoices & Pending Tasks (col-span-2) -->
     <div class="col-span-2 d-flex flex-column gap-4">
+                <!-- Live Customer Khata Activity Stream -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-between align-center">
+                <h3 class="card-title">
+                    <i class="ti ti-notebook mr-1 text-primary"></i> Recent Customer Khata Transactions
+                </h3>
+                <a href="<?= url('customers.php') ?>" class="text-sm">View All Customers &rarr;</a>
+            </div>
+            <div class="card-body p-0">
+                <?php if (empty($recentKhataEntries)): ?>
+                    <div class="empty-state p-4 text-center">
+                        <i class="ti ti-book text-muted text-2xl mb-1"></i>
+                        <p class="text-muted text-sm">No Khata transactions recorded yet. Use "You Gave" or "You Got" on any customer profile to initiate direct ledger entries.</p>
+                    </div>
+                <?php else: ?>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Customer</th>
+                                    <th>Transaction Type</th>
+                                    <th>Description</th>
+                                    <th class="text-right">Amount</th>
+                                    <th class="text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($recentKhataEntries as $entry): 
+                                    $isDebit = (float)$entry['debit'] > 0;
+                                    $amount = $isDebit ? (float)$entry['debit'] : (float)$entry['credit'];
+                                    $typeLabel = match($entry['entry_type']) {
+                                        'you_gave' => 'You Gave',
+                                        'you_got' => 'You Got',
+                                        'invoice' => 'Invoice',
+                                        'payment' => 'Payment',
+                                        'opening_balance' => 'Opening Bal',
+                                        default => ucfirst(str_replace('_', ' ', $entry['entry_type']))
+                                    };
+                                    $typeBadge = $isDebit ? 'badge-danger' : 'badge-success';
+                                ?>
+                                <tr>
+                                    <td class="text-sm"><?= formatDate($entry['entry_date']) ?></td>
+                                    <td>
+                                        <a href="<?= url('customer-view.php?id=' . $entry['customer_id'] . '&tab=khata') ?>" class="font-bold">
+                                            <?= e($entry['customer_name']) ?>
+                                        </a>
+                                        <?php if (!empty($entry['customer_phone'])): ?>
+                                            <div class="text-xs text-muted"><?= e($entry['customer_phone']) ?></div>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <span class="badge <?= $typeBadge ?>">
+                                            <i class="ti <?= $isDebit ? 'ti-arrow-up-right' : 'ti-arrow-down-left' ?> mr-1"></i>
+                                            <?= $typeLabel ?>
+                                        </span>
+                                    </td>
+                                    <td class="text-sm">
+                                        <?= e($entry['description'] ?: 'Khata Entry') ?>
+                                    </td>
+                                    <td class="text-right font-bold <?= $isDebit ? 'text-danger' : 'text-success' ?>">
+                                        <?= $isDebit ? '+ ' : '- ' ?><?= formatCurrency($amount) ?>
+                                    </td>
+                                    <td class="text-center">
+                                        <a href="<?= url('customer-view.php?id=' . $entry['customer_id'] . '&tab=khata') ?>" class="btn btn-sm btn-ghost" title="View Customer Khata">
+                                            <i class="ti ti-arrow-right"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+
         <!-- Overdue Invoices Alert Table -->
         <div class="card">
             <div class="card-header d-flex justify-between align-center">

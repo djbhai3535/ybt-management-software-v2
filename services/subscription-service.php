@@ -10,56 +10,184 @@ declare(strict_types=1);
 if (!defined('YBT_ROOT')) exit;
 
 class SubscriptionService {
+    private static function getDefaultPlansList(): array {
+        return [
+            [
+                'id' => 1,
+                'slug' => 'free',
+                'name' => 'Free Starter',
+                'badge' => 'Pilot',
+                'description' => 'Standard offline desktop CRM with ledger and billing',
+                'price_monthly' => 0.00,
+                'price_annual' => 0.00,
+                'currency' => 'PKR',
+                'max_users' => 2,
+                'max_customers' => 500,
+                'max_invoices_per_month' => 100,
+                'ai_enabled' => 0,
+                'ai_monthly_limit' => 0,
+                'offline_sync_enabled' => 1,
+                'features_json' => '["offline_sqlite","customer_ledger","invoice_billing","desktop_sync"]',
+                'is_active' => 1,
+                'sort_order' => 1
+            ],
+            [
+                'id' => 2,
+                'slug' => 'standard',
+                'name' => 'Standard Business',
+                'badge' => 'Popular',
+                'description' => 'Ideal for single-shop retailers and billing terminals',
+                'price_monthly' => 3000.00,
+                'price_annual' => 30000.00,
+                'currency' => 'PKR',
+                'max_users' => 3,
+                'max_customers' => 2000,
+                'max_invoices_per_month' => 1000,
+                'ai_enabled' => 0,
+                'ai_monthly_limit' => 0,
+                'offline_sync_enabled' => 1,
+                'features_json' => '["offline_sqlite","customer_ledger","invoice_billing","desktop_sync","whatsapp_billing"]',
+                'is_active' => 1,
+                'sort_order' => 2
+            ],
+            [
+                'id' => 3,
+                'slug' => 'professional',
+                'name' => 'Professional Growth',
+                'badge' => 'Growth',
+                'description' => 'Unlimited invoicing, stock movements, and multi-terminal sync',
+                'price_monthly' => 6000.00,
+                'price_annual' => 60000.00,
+                'currency' => 'PKR',
+                'max_users' => 10,
+                'max_customers' => 10000,
+                'max_invoices_per_month' => 5000,
+                'ai_enabled' => 1,
+                'ai_monthly_limit' => 100,
+                'offline_sync_enabled' => 1,
+                'features_json' => '["all_starter_features","unlimited_invoices","stock_movements","thermal_print","priority_support"]',
+                'is_active' => 1,
+                'sort_order' => 3
+            ],
+            [
+                'id' => 4,
+                'slug' => 'enterprise',
+                'name' => 'Enterprise Fleet',
+                'badge' => 'VIP',
+                'description' => 'Multi-branch sync, dedicated cloud instance and full support',
+                'price_monthly' => 15000.00,
+                'price_annual' => 150000.00,
+                'currency' => 'PKR',
+                'max_users' => 50,
+                'max_customers' => 50000,
+                'max_invoices_per_month' => 25000,
+                'ai_enabled' => 1,
+                'ai_monthly_limit' => 500,
+                'offline_sync_enabled' => 1,
+                'features_json' => '["all_pro_features","multi_branch","unlimited_terminals","dedicated_support"]',
+                'is_active' => 1,
+                'sort_order' => 4
+            ]
+        ];
+    }
+
     /**
      * Get all active subscription plans
      */
     public static function getPlans(): array {
-        return Database::fetchAll("SELECT * FROM subscription_plans WHERE is_active = 1 ORDER BY sort_order ASC, id ASC");
+        try {
+            $plans = Database::fetchAll("SELECT * FROM subscription_plans WHERE is_active = 1 ORDER BY sort_order ASC, id ASC");
+            if (!empty($plans)) {
+                return $plans;
+            }
+        } catch (\Throwable $e) {}
+        return self::getDefaultPlansList();
     }
 
     /**
      * Get all plans including inactive for Super Admin
      */
     public static function getAllPlansForAdmin(): array {
-        return Database::fetchAll("SELECT * FROM subscription_plans ORDER BY sort_order ASC, id ASC");
+        try {
+            $plans = Database::fetchAll("SELECT * FROM subscription_plans ORDER BY sort_order ASC, id ASC");
+            if (!empty($plans)) {
+                return $plans;
+            }
+        } catch (\Throwable $e) {}
+        return self::getDefaultPlansList();
     }
 
     /**
      * Get plan by slug
      */
     public static function getPlanBySlug(string $slug): ?array {
-        return Database::fetch("SELECT * FROM subscription_plans WHERE slug = ? LIMIT 1", [$slug]) ?: null;
+        try {
+            $plan = Database::fetch("SELECT * FROM subscription_plans WHERE slug = ? LIMIT 1", [$slug]);
+            if ($plan) {
+                return $plan;
+            }
+        } catch (\Throwable $e) {}
+
+        foreach (self::getDefaultPlansList() as $p) {
+            if ($p['slug'] === $slug) {
+                return $p;
+            }
+        }
+        return null;
     }
 
     /**
      * Get plan by ID
      */
     public static function getPlanById(int $planId): ?array {
-        return Database::fetch("SELECT * FROM subscription_plans WHERE id = ? LIMIT 1", [$planId]) ?: null;
+        try {
+            $plan = Database::fetch("SELECT * FROM subscription_plans WHERE id = ? LIMIT 1", [$planId]);
+            if ($plan) {
+                return $plan;
+            }
+        } catch (\Throwable $e) {}
+
+        foreach (self::getDefaultPlansList() as $p) {
+            if ((int)$p['id'] === $planId) {
+                return $p;
+            }
+        }
+        return null;
     }
 
     /**
      * Get current subscription and quota status for a business
      */
     public static function getBusinessPlan(int $businessId): array {
-        $biz = Database::fetch(
-            "SELECT id, name, subscription_status, subscription_expires_at, current_plan_slug FROM businesses WHERE id = ?",
-            [$businessId]
-        );
+        try {
+            $biz = Database::fetch("SELECT * FROM businesses WHERE id = ?", [$businessId]);
+        } catch (\Throwable $e) {
+            $biz = null;
+        }
 
-        $planSlug = $biz['current_plan_slug'] ?? 'standard';
+        if (!$biz) {
+            $biz = [
+                'id' => $businessId,
+                'name' => 'My Business',
+                'current_plan_slug' => 'free',
+                'subscription_status' => 'active',
+                'subscription_expires_at' => null
+            ];
+        }
+
+        $planSlug = $biz['current_plan_slug'] ?? 'free';
         $plan = self::getPlanBySlug($planSlug);
         if (!$plan) {
-            $plan = self::getPlanBySlug('standard') ?? [
-                'id' => 2,
-                'slug' => 'standard',
-                'name' => 'Standard Business',
-                'price_monthly' => 3000.00,
-                'price_annual' => 30000.00,
+            $plan = self::getPlanBySlug('starter') ?? self::getPlanBySlug('free') ?? [
+                'id' => 1,
+                'slug' => 'free',
+                'name' => 'Free Starter',
+                'price_monthly' => 0.00,
+                'price_annual' => 0.00,
                 'currency' => 'PKR',
-                'max_users' => 3,
-                'max_customers' => 1500,
-                'max_invoices_per_month' => 1000,
+                'max_users' => 2,
+                'max_customers' => 500,
+                'max_invoices_per_month' => 100,
                 'ai_enabled' => 0,
                 'ai_monthly_limit' => 0,
                 'offline_sync_enabled' => 1,
@@ -201,7 +329,8 @@ class SubscriptionService {
         $extensionDays = ($cycle === 'annual') ? 365 : 30;
 
         // Calculate new expiry date
-        $currentExpiry = Database::fetchColumn("SELECT subscription_expires_at FROM businesses WHERE id = ?", [$sub['business_id']]);
+        $biz = Database::fetch("SELECT * FROM businesses WHERE id = ?", [$sub['business_id']]);
+        $currentExpiry = $biz['subscription_expires_at'] ?? null;
         $baseTs = (!empty($currentExpiry) && strtotime($currentExpiry) > time()) ? strtotime($currentExpiry) : time();
         $newExpiry = date('Y-m-d H:i:s', $baseTs + ($extensionDays * 86400));
 
@@ -216,10 +345,11 @@ class SubscriptionService {
             );
 
             // Update business
-            Database::query(
-                "UPDATE businesses SET current_plan_slug = ?, subscription_status = 'active', subscription_expires_at = ? WHERE id = ?",
-                [$plan['slug'], $newExpiry, $sub['business_id']]
-            );
+            Database::update('businesses', [
+                'current_plan_slug' => $plan['slug'],
+                'subscription_status' => 'active',
+                'subscription_expires_at' => $newExpiry
+            ], 'id = ?', [$sub['business_id']]);
 
             $db->commit();
 
@@ -250,10 +380,11 @@ class SubscriptionService {
         $now = date('Y-m-d H:i:s');
         $newExpiry = date('Y-m-d H:i:s', time() + ($durationMonths * 30 * 86400));
 
-        Database::query(
-            "UPDATE businesses SET current_plan_slug = ?, subscription_status = 'active', subscription_expires_at = ? WHERE id = ?",
-            [$plan['slug'], $newExpiry, $businessId]
-        );
+        Database::update('businesses', [
+            'current_plan_slug' => $plan['slug'],
+            'subscription_status' => 'active',
+            'subscription_expires_at' => $newExpiry
+        ], 'id = ?', [$businessId]);
 
         Database::insert('business_subscriptions', [
             'business_id' => $businessId,

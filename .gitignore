@@ -30,6 +30,7 @@ storage/desktop/*.sqlite*
 # Build Packages & Scratch
 *.zip
 *.exe
+/*.pdf
 scratch/
 temp-orig-compare/
 desktop/clean_storage/

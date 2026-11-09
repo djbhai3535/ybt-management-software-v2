@@ -8,6 +8,8 @@ require_once __DIR__ . '/auth-check.php';
 require_once __DIR__ . '/../services/subscription-service.php';
 require_once __DIR__ . '/../services/platform-settings-service.php';
 
+Database::ensureSchemaCompatibility();
+
 $pageTitle = 'SaaS Plans & Subscription Billing';
 
 // Handle Action: Update Plan Configuration
@@ -99,14 +101,22 @@ $plans = SubscriptionService::getAllPlansForAdmin();
 $pendingApprovals = SubscriptionService::getPendingApprovals();
 
 // Telemetry & KPI calculations
-$activeSubsCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM businesses WHERE subscription_status = 'active'");
+$bizCols = Database::getTableColumns('businesses');
+$hasSubStatus = !empty($bizCols['subscription_status']);
+$statusCol = $hasSubStatus ? "b.subscription_status" : "b.status";
+$statusCountCol = $hasSubStatus ? "subscription_status" : "status";
+
+$activeSubsCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM businesses WHERE {$statusCountCol} = 'active'");
 $pendingCount = count($pendingApprovals);
-$totalMrr = (float)Database::fetchColumn(
-    "SELECT COALESCE(SUM(p.price_monthly), 0) 
-     FROM businesses b 
-     JOIN subscription_plans p ON b.current_plan_slug = p.slug 
-     WHERE b.subscription_status = 'active'"
-);
+$totalMrr = 0.0;
+try {
+    $totalMrr = (float)Database::fetchColumn(
+        "SELECT COALESCE(SUM(p.price_monthly), 0) 
+         FROM businesses b 
+         JOIN subscription_plans p ON b.current_plan_slug = p.slug 
+         WHERE {$statusCol} = 'active'"
+    );
+} catch (\Throwable $e) {}
 
 // Search & filter businesses
 $search = trim($_GET['search'] ?? '');
@@ -125,13 +135,17 @@ if ($filterPlan !== 'all' && !empty($filterPlan)) {
     $params[] = $filterPlan;
 }
 if ($filterStatus !== 'all' && !empty($filterStatus)) {
-    $where[] = "b.subscription_status = ?";
+    $where[] = "{$statusCol} = ?";
     $params[] = $filterStatus;
 }
 $whereClause = implode(' AND ', $where);
 
+$subSelect = $hasSubStatus 
+    ? "b.subscription_status, b.subscription_expires_at," 
+    : "b.status as subscription_status, NULL as subscription_expires_at,";
+
 $businesses = Database::fetchAll(
-    "SELECT b.id, b.name, b.phone, b.city, b.current_plan_slug, b.subscription_status, b.subscription_expires_at,
+    "SELECT b.id, b.name, b.phone, b.city, b.current_plan_slug, {$subSelect}
             p.name as plan_name, p.price_monthly,
             (SELECT COUNT(*) FROM users u WHERE u.business_id = b.id) as user_count,
             (SELECT COUNT(*) FROM customers c WHERE c.business_id = b.id) as customer_count,
