@@ -24,10 +24,12 @@ $totalProducts = (int)Database::fetchColumn(
     [$businessId]
 );
 
-$totalStockQty = (float)Database::fetchColumn(
-    "SELECT COALESCE(SUM(current_stock), 0) FROM products WHERE business_id = ?",
+$prodCols = Database::getTableColumns('products');
+$stockCol = isset($prodCols['stock_quantity']) ? 'stock_quantity' : (isset($prodCols['current_stock']) ? 'current_stock' : (isset($prodCols['quantity']) ? 'quantity' : null));
+$totalStockQty = $stockCol ? (float)Database::fetchColumn(
+    "SELECT COALESCE(SUM(`{$stockCol}`), 0) FROM products WHERE business_id = ?",
     [$businessId]
-);
+) : 0.0;
 
 // 2. Real Customer Ledger Financials (Strictly respects debit/credit accounting)
 // Customer Receivables: Sum of money customers owe the shop (current_balance > 0)
