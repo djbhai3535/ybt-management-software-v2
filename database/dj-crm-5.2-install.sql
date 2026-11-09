@@ -362,7 +362,9 @@ CREATE TABLE IF NOT EXISTS `customers` (
   -- Billing Address
   `billing_address_line1` VARCHAR(255) DEFAULT NULL,
   `billing_address_line2` VARCHAR(255) DEFAULT NULL,
+  `address` TEXT DEFAULT NULL,
   `billing_city` VARCHAR(100) DEFAULT NULL,
+  `city` VARCHAR(100) DEFAULT NULL,
   `billing_state` VARCHAR(100) DEFAULT NULL,
   `billing_postal_code` VARCHAR(20) DEFAULT NULL,
   `billing_country` VARCHAR(100) DEFAULT 'India',

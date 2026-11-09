@@ -269,10 +269,18 @@ class KhataService {
             ]);
 
             // Update customer's current balance
-            Database::query(
-                "UPDATE customers SET current_balance = ?, balance = ?, updated_at = ? WHERE id = ? AND business_id = ?",
-                [$newBal, $newBal, date('Y-m-d H:i:s'), $customerId, $businessId]
-            );
+            $custCols = Database::getTableColumns('customers');
+            if (isset($custCols['balance'])) {
+                Database::query(
+                    "UPDATE customers SET current_balance = ?, balance = ?, updated_at = ? WHERE id = ? AND business_id = ?",
+                    [$newBal, $newBal, date('Y-m-d H:i:s'), $customerId, $businessId]
+                );
+            } else {
+                Database::query(
+                    "UPDATE customers SET current_balance = ?, updated_at = ? WHERE id = ? AND business_id = ?",
+                    [$newBal, date('Y-m-d H:i:s'), $customerId, $businessId]
+                );
+            }
 
             // Auto-enqueue for cloud synchronization into pending_operations queue
             try {
@@ -744,7 +752,12 @@ class KhataService {
             Database::query("UPDATE customer_ledger SET running_balance = ? WHERE id = ?", [$running, $row['id']]);
         }
 
-        Database::query("UPDATE customers SET current_balance = ? WHERE id = ? AND business_id = ?", [$running, $customerId, $businessId]);
+        $custCols = Database::getTableColumns('customers');
+        if (isset($custCols['balance'])) {
+            Database::query("UPDATE customers SET current_balance = ?, balance = ? WHERE id = ? AND business_id = ?", [$running, $running, $customerId, $businessId]);
+        } else {
+            Database::query("UPDATE customers SET current_balance = ? WHERE id = ? AND business_id = ?", [$running, $customerId, $businessId]);
+        }
         return $running;
     }
 
