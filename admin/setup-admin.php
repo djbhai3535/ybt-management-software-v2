@@ -1,12 +1,15 @@
 <?php
 /**
- * DJ CRM Software 5.2 — Platform Super Administrator First-Time Web Setup
+ * DJ CRM Software 5.2.1 — Platform Super Administrator First-Time Web Setup
  * 
  * SECURITY:
  * This page is automatically and PERMANENTLY LOCKED once any Super Administrator exists in the system.
  */
 
 require_once __DIR__ . '/../includes/bootstrap.php';
+
+// Auto-heal schema compatibility (e.g. users.is_super_admin, ai_provider_configs.is_default)
+Database::ensureSchemaCompatibility();
 
 // Check if any Super Administrator already exists
 $superAdminCount = 0;
@@ -176,7 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div style="width: 56px; height: 56px; border-radius: 12px; background: linear-gradient(135deg, #f59e0b, #ef4444); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 1.75rem; margin-bottom: 1rem;">
                 <i class="ti ti-shield-lock"></i>
             </div>
-            <h1 style="font-size: 1.5rem; font-weight: 800; margin: 0;">DJ CRM Software 5.2</h1>
+            <h1 style="font-size: 1.5rem; font-weight: 800; margin: 0;">DJ CRM Software 5.2.1</h1>
             <p style="color: #9ca3af; font-size: 0.875rem; margin-top: 0.5rem;">
                 Initial Platform Super Administrator Setup
             </p>

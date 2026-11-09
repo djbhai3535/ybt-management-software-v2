@@ -8,6 +8,108 @@ class Database {
     private static ?PDO $instance = null;
     private static string $driver = 'mysql';
     private static array $tableColumnCache = [];
+    private static bool $schemaEnsured = false;
+
+    /**
+     * Clear cached table column metadata
+     */
+    public static function clearColumnCache(?string $table = null): void {
+        if ($table !== null) {
+            $table = trim(str_replace('`', '', $table));
+            unset(self::$tableColumnCache[$table]);
+        } else {
+            self::$tableColumnCache = [];
+        }
+    }
+
+    /**
+     * Non-destructive, idempotent self-healing schema compatibility
+     */
+    public static function ensureSchemaCompatibility(): void {
+        if (self::$schemaEnsured) {
+            return;
+        }
+        self::$schemaEnsured = true;
+
+        try {
+            $isSqlite = (self::getDriver() === 'sqlite');
+
+            // 1. Ensure users.is_super_admin exists
+            $userCols = self::getTableColumns('users');
+            if (!empty($userCols) && !isset($userCols['is_super_admin'])) {
+                $sql = $isSqlite 
+                    ? "ALTER TABLE `users` ADD COLUMN `is_super_admin` INTEGER DEFAULT 0" 
+                    : "ALTER TABLE `users` ADD COLUMN `is_super_admin` TINYINT(1) DEFAULT 0 AFTER `is_owner`";
+                self::query($sql);
+                self::clearColumnCache('users');
+            }
+
+            // 2. Ensure ai_provider_configs.is_default exists
+            $aiCols = self::getTableColumns('ai_provider_configs');
+            if (!empty($aiCols) && !isset($aiCols['is_default'])) {
+                $sql = $isSqlite 
+                    ? "ALTER TABLE `ai_provider_configs` ADD COLUMN `is_default` INTEGER DEFAULT 0" 
+                    : "ALTER TABLE `ai_provider_configs` ADD COLUMN `is_default` TINYINT(1) DEFAULT 0 AFTER `is_active`";
+                self::query($sql);
+                self::clearColumnCache('ai_provider_configs');
+            }
+
+            // 3. Ensure customers.city & address compatibility
+            $custCols = self::getTableColumns('customers');
+            if (!empty($custCols)) {
+                if (!isset($custCols['city'])) {
+                    $sql = $isSqlite
+                        ? "ALTER TABLE `customers` ADD COLUMN `city` TEXT DEFAULT NULL"
+                        : "ALTER TABLE `customers` ADD COLUMN `city` VARCHAR(100) DEFAULT NULL AFTER `billing_city`";
+                    self::query($sql);
+                }
+                if (!isset($custCols['address'])) {
+                    $sql = $isSqlite
+                        ? "ALTER TABLE `customers` ADD COLUMN `address` TEXT DEFAULT NULL"
+                        : "ALTER TABLE `customers` ADD COLUMN `address` TEXT DEFAULT NULL AFTER `billing_address_line1`";
+                    self::query($sql);
+                }
+                self::clearColumnCache('customers');
+            }
+
+            // 4. Ensure customer_ledger attachments
+            $clCols = self::getTableColumns('customer_ledger');
+            if (!empty($clCols)) {
+                if (!isset($clCols['item_details'])) {
+                    self::query("ALTER TABLE `customer_ledger` ADD COLUMN `item_details` TEXT DEFAULT NULL");
+                }
+                if (!isset($clCols['image_attachment'])) {
+                    self::query("ALTER TABLE `customer_ledger` ADD COLUMN `image_attachment` VARCHAR(255) DEFAULT NULL");
+                }
+                if (!isset($clCols['voice_attachment'])) {
+                    self::query("ALTER TABLE `customer_ledger` ADD COLUMN `voice_attachment` VARCHAR(255) DEFAULT NULL");
+                }
+                self::clearColumnCache('customer_ledger');
+            }
+
+            // 5. Ensure advertisements table exists
+            if (!$isSqlite) {
+                self::query("CREATE TABLE IF NOT EXISTS `advertisements` (
+                  `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                  `title` VARCHAR(255) NOT NULL,
+                  `placement` ENUM('dashboard_top', 'sidebar_bottom', 'login_banner') NOT NULL DEFAULT 'dashboard_top',
+                  `image_url` VARCHAR(500) DEFAULT NULL,
+                  `target_url` VARCHAR(500) DEFAULT NULL,
+                  `start_date` DATE DEFAULT NULL,
+                  `end_date` DATE DEFAULT NULL,
+                  `is_active` TINYINT(1) DEFAULT 1,
+                  `impressions_count` INT UNSIGNED DEFAULT 0,
+                  `clicks_count` INT UNSIGNED DEFAULT 0,
+                  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                  INDEX `idx_ads_placement_active` (`placement`, `is_active`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+            }
+        } catch (\Throwable $e) {
+            // Non-destructive: if table locked or insufficient DDL permissions, catch silently
+            error_log('Schema compatibility check notice: ' . $e->getMessage());
+        }
+    }
 
     /**
      * Inspect and cache column names for a given table
@@ -30,8 +132,9 @@ class Database {
             } else {
                 $rows = self::fetchAll("SHOW COLUMNS FROM `{$table}`");
                 foreach ($rows as $r) {
-                    if (!empty($r['Field'])) {
-                        $cols[strtolower($r['Field'])] = true;
+                    $fieldName = $r['Field'] ?? $r['field'] ?? $r['FIELD'] ?? (is_array($r) ? reset($r) : null);
+                    if (!empty($fieldName)) {
+                        $cols[strtolower((string)$fieldName)] = true;
                     }
                 }
             }

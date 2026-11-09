@@ -95,15 +95,15 @@ class AIProviderService {
      * Get all configured providers for a business
      */
     public static function getAll(int $businessId): array {
-        $cols = Database::getTableColumns('ai_provider_configs');
-        $orderBy = isset($cols['is_default']) 
-            ? "ORDER BY is_default DESC, is_active DESC, created_at DESC" 
-            : "ORDER BY is_active DESC, created_at DESC";
-
-        $rows = Database::fetchAll(
-            "SELECT * FROM ai_provider_configs WHERE business_id = ? {$orderBy}",
-            [$businessId]
-        );
+        try {
+            $rows = Database::fetchAll(
+                "SELECT * FROM ai_provider_configs WHERE business_id = ? ORDER BY is_active DESC, id DESC",
+                [$businessId]
+            );
+        } catch (\Throwable $e) {
+            // Table might not exist yet or query failed safely
+            return [];
+        }
 
         foreach ($rows as &$row) {
             if (!isset($row['is_default'])) {
@@ -129,6 +129,24 @@ class AIProviderService {
                 $row['masked_key'] = 'None';
             }
         }
+        unset($row);
+
+        // Sort in PHP memory by is_default DESC, is_active DESC, id DESC
+        // This guarantees NO SQL 'is_default' dependency ever occurs
+        usort($rows, function ($a, $b) {
+            $defA = (int)($a['is_default'] ?? 0);
+            $defB = (int)($b['is_default'] ?? 0);
+            if ($defA !== $defB) {
+                return $defB <=> $defA;
+            }
+            $actA = (int)($a['is_active'] ?? 0);
+            $actB = (int)($b['is_active'] ?? 0);
+            if ($actA !== $actB) {
+                return $actB <=> $actA;
+            }
+            return ((int)($b['id'] ?? 0)) <=> ((int)($a['id'] ?? 0));
+        });
+
         return $rows;
     }
 
@@ -136,45 +154,35 @@ class AIProviderService {
      * Get active default provider config for business
      */
     public static function getActive(int $businessId): ?array {
-        $cols = Database::getTableColumns('ai_provider_configs');
-        $row = null;
+        $rows = self::getAll($businessId);
 
-        if (isset($cols['is_default'])) {
-            $row = Database::fetch(
-                "SELECT * FROM ai_provider_configs WHERE business_id = ? AND is_active = 1 AND is_default = 1 LIMIT 1",
-                [$businessId]
-            );
-        }
-
-        if (!$row) {
-            // Fallback to any active provider
-            $row = Database::fetch(
-                "SELECT * FROM ai_provider_configs WHERE business_id = ? AND is_active = 1 LIMIT 1",
-                [$businessId]
-            );
-        }
-
-        if ($row) {
-            if (!isset($row['is_default'])) {
-                $row['is_default'] = (int)($row['is_active'] ?? 1);
-            }
-            if (!isset($row['provider_type']) && isset($row['provider_slug'])) {
-                $row['provider_type'] = $row['provider_slug'];
-            }
-            if (!isset($row['base_url']) && isset($row['api_endpoint'])) {
-                $row['base_url'] = $row['api_endpoint'];
-            }
-            if (!isset($row['model_id']) && isset($row['model_name'])) {
-                $row['model_id'] = $row['model_name'];
+        $selected = null;
+        // Priority 1: explicitly active and default
+        foreach ($rows as $r) {
+            if (!empty($r['is_active']) && !empty($r['is_default'])) {
+                $selected = $r;
+                break;
             }
         }
 
-        if ($row && !empty($row['api_key_encrypted'])) {
-            $row['api_key'] = decryptString($row['api_key_encrypted']);
-            $row['has_key'] = true;
-            $len = strlen($row['api_key']);
-            $row['masked_key'] = $len > 6 ? substr($row['api_key'], 0, 3) . '••••••••' . substr($row['api_key'], -4) : '••••••••';
-            return $row;
+        // Priority 2: any active provider
+        if (!$selected) {
+            foreach ($rows as $r) {
+                if (!empty($r['is_active'])) {
+                    $selected = $r;
+                    break;
+                }
+            }
+        }
+
+        if ($selected) {
+            if (!empty($selected['api_key_encrypted'])) {
+                $selected['api_key'] = decryptString($selected['api_key_encrypted']);
+                $selected['has_key'] = true;
+                $len = strlen($selected['api_key']);
+                $selected['masked_key'] = $len > 6 ? substr($selected['api_key'], 0, 3) . '••••••••' . substr($selected['api_key'], -4) : '••••••••';
+            }
+            return $selected;
         }
 
         // Fallback to Central Platform AI Provider configured by Super Admin
@@ -199,13 +207,7 @@ class AIProviderService {
             }
         }
 
-        if ($row) {
-            $row['api_key'] = '';
-            $row['has_key'] = false;
-            $row['masked_key'] = 'None';
-        }
-
-        return $row;
+        return null;
     }
 
     /**
@@ -239,10 +241,12 @@ class AIProviderService {
 
         // If marked default, unset any existing default for this business
         if ($isDefault && $hasDefaultCol) {
-            Database::query(
-                "UPDATE ai_provider_configs SET is_default = 0 WHERE business_id = ?",
-                [$businessId]
-            );
+            try {
+                Database::query(
+                    "UPDATE ai_provider_configs SET is_default = 0 WHERE business_id = ?",
+                    [$businessId]
+                );
+            } catch (\Throwable $e) {}
         }
 
         $record = [

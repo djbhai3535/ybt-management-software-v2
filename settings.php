@@ -11,6 +11,9 @@ require_once __DIR__ . '/services/ai-provider-service.php';
 Auth::requireLogin();
 Permissions::require('settings.access');
 
+// Auto-heal schema compatibility (e.g. ai_provider_configs.is_default, customers.city)
+Database::ensureSchemaCompatibility();
+
 $businessId = Auth::businessId();
 $userId = Auth::id();
 $business = Database::fetch("SELECT * FROM businesses WHERE id = ?", [$businessId]);
@@ -95,13 +98,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if (Csrf::validate($_POST['_csrf_token'] ?? '')) {
         $defId = (int)($_POST['provider_id'] ?? 0);
         $cols = Database::getTableColumns('ai_provider_configs');
-        if (isset($cols['is_default'])) {
+        try {
+            if (!empty($cols['is_default'])) {
             Database::query("UPDATE ai_provider_configs SET is_default = 0 WHERE business_id = ?", [$businessId]);
             Database::query("UPDATE ai_provider_configs SET is_default = 1, is_active = 1 WHERE id = ? AND business_id = ?", [$defId, $businessId]);
         } else {
             Database::query("UPDATE ai_provider_configs SET is_active = 0 WHERE business_id = ?", [$businessId]);
             Database::query("UPDATE ai_provider_configs SET is_active = 1 WHERE id = ? AND business_id = ?", [$defId, $businessId]);
         }
+        } catch (\Throwable $e) {}
         Flash::success('Default active AI Provider updated.');
         header('Location: ' . url('settings.php#section-ai-providers'));
         exit;

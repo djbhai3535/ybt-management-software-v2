@@ -51,7 +51,9 @@ function handleKhataFileUpload(string $fileKey, string $type = 'image'): ?string
 
 // 0a. Handle You Gave POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'record_you_gave') {
-    Permissions::require('customers.edit');
+    if (!Permissions::has('customers.edit') && !Permissions::has('payments.record') && !Permissions::has('invoices.create')) {
+        Permissions::require('customers.edit');
+    }
     if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
         Flash::error('Invalid security token. Please refresh and try again.');
     } else {
@@ -615,17 +617,17 @@ require YBT_ROOT . '/includes/header.php';
 <!-- MODAL: Receive Khata Payment                                 -->
 <!-- ============================================================ -->
 <div class="modal-backdrop" id="record-khata-payment-modal" style="display: none;">
-    <div class="modal" style="max-width: 520px;">
-        <div class="modal-header">
+    <div class="modal-card" style="max-width: 520px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+        <div class="modal-header" style="flex-shrink: 0;">
             <h3 class="modal-title"><i class="ti ti-cash mr-1 text-success"></i> Receive Customer Payment</h3>
             <button type="button" class="modal-close" data-modal-dismiss>&times;</button>
         </div>
-        <form method="POST" action="<?= url('customer-view.php?id=' . $customer['id']) ?>">
+        <form method="POST" action="<?= url('customer-view.php?id=' . $customer['id']) ?>" style="display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; margin: 0;">
             <?= Csrf::field() ?>
             <input type="hidden" name="action" value="record_khata_payment">
             <input type="hidden" name="idempotency_key" value="khata_pay_<?= $businessId ?>_<?= $customerId ?>_<?= time() ?>_<?= rand(100, 999) ?>">
 
-            <div class="modal-body">
+            <div class="modal-body" style="flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 1.25rem;">
                 <div class="p-3 bg-subtle rounded mb-3">
                     <div class="d-flex justify-between align-center mb-1">
                         <span class="text-muted text-xs">Customer</span>
@@ -692,9 +694,9 @@ require YBT_ROOT . '/includes/header.php';
                 </div>
             </div>
 
-            <div class="modal-footer">
+            <div class="modal-footer d-flex justify-between align-center" style="flex-shrink: 0; position: sticky; bottom: 0; z-index: 10; background: var(--color-surface, #ffffff); border-top: 1px solid var(--color-border, #e2e8f0); padding: 0.875rem 1.25rem;">
                 <button type="button" class="btn btn-secondary" data-modal-dismiss>Cancel</button>
-                <button type="submit" class="btn btn-success">
+                <button type="submit" class="btn btn-success font-bold" style="min-width: 150px; cursor: pointer;">
                     <i class="ti ti-check mr-1"></i> Confirm & Save Payment
                 </button>
             </div>
@@ -706,19 +708,19 @@ require YBT_ROOT . '/includes/header.php';
 <!-- MODAL: You Gave — Debit Entry                    -->
 <!-- ============================================================ -->
 <div class="modal-backdrop" id="modal-you-gave" style="display: none;">
-    <div class="modal-card" style="max-width: 540px;">
-        <div class="modal-header" style="border-bottom: 2px solid #ef4444;">
+    <div class="modal-card" style="max-width: 560px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+        <div class="modal-header" style="border-bottom: 2px solid #ef4444; flex-shrink: 0;">
             <h3 class="modal-title text-danger">
                 <i class="ti ti-arrow-up-right mr-1"></i> You Gave — Debit Entry
             </h3>
             <button type="button" class="modal-close" data-modal-close aria-label="Close">&times;</button>
         </div>
-        <form method="POST" action="<?= url('customer-view.php?id=' . $customer['id']) ?>" enctype="multipart/form-data">
+        <form method="POST" action="<?= url('customer-view.php?id=' . $customer['id']) ?>" enctype="multipart/form-data" style="display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; margin: 0;">
             <?= Csrf::field() ?>
             <input type="hidden" name="action" value="record_you_gave">
             <input type="hidden" name="idempotency_key" value="gave_<?= $businessId ?>_<?= $customerId ?>_<?= time() ?>_<?= rand(100, 999) ?>">
 
-            <div class="modal-body">
+            <div class="modal-body" style="flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 1.25rem;">
                 <div class="p-3 rounded mb-3" style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2);">
                     <div class="d-flex justify-between align-center mb-1">
                         <span class="text-muted text-xs">Customer</span>
@@ -771,11 +773,11 @@ require YBT_ROOT . '/includes/header.php';
                 </div>
             </div>
 
-            <div class="modal-footer d-flex justify-between align-center">
+            <div class="modal-footer d-flex justify-between align-center" style="flex-shrink: 0; position: sticky; bottom: 0; z-index: 10; background: var(--color-surface, #ffffff); border-top: 1px solid var(--color-border, #e2e8f0); padding: 0.875rem 1.25rem;">
                 <span class="text-xs text-muted">This increases customer payable dues.</span>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
-                    <button type="submit" class="btn btn-danger font-bold">
+                    <button type="submit" id="btn-save-you-gave" class="btn btn-danger font-bold" style="min-width: 140px; cursor: pointer;">
                         <i class="ti ti-check mr-1"></i> Save You Gave
                     </button>
                 </div>
@@ -788,19 +790,19 @@ require YBT_ROOT . '/includes/header.php';
 <!-- MODAL: You Got — Credit Entry                    -->
 <!-- ============================================================ -->
 <div class="modal-backdrop" id="modal-you-got" style="display: none;">
-    <div class="modal-card" style="max-width: 540px;">
-        <div class="modal-header" style="border-bottom: 2px solid #10b981;">
+    <div class="modal-card" style="max-width: 560px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+        <div class="modal-header" style="border-bottom: 2px solid #10b981; flex-shrink: 0;">
             <h3 class="modal-title text-success">
                 <i class="ti ti-arrow-down-left mr-1"></i> You Got — Credit Entry
             </h3>
             <button type="button" class="modal-close" data-modal-close aria-label="Close">&times;</button>
         </div>
-        <form method="POST" action="<?= url('customer-view.php?id=' . $customer['id']) ?>" enctype="multipart/form-data">
+        <form method="POST" action="<?= url('customer-view.php?id=' . $customer['id']) ?>" enctype="multipart/form-data" style="display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; margin: 0;">
             <?= Csrf::field() ?>
             <input type="hidden" name="action" value="record_you_got">
             <input type="hidden" name="idempotency_key" value="got_<?= $businessId ?>_<?= $customerId ?>_<?= time() ?>_<?= rand(100, 999) ?>">
 
-            <div class="modal-body">
+            <div class="modal-body" style="flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 1.25rem;">
                 <div class="p-3 rounded mb-3" style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2);">
                     <div class="d-flex justify-between align-center mb-1">
                         <span class="text-muted text-xs">Customer</span>
@@ -861,16 +863,18 @@ require YBT_ROOT . '/includes/header.php';
                 </div>
             </div>
 
-            <div class="modal-footer d-flex justify-between align-center">
+            <div class="modal-footer d-flex justify-between align-center" style="flex-shrink: 0; position: sticky; bottom: 0; z-index: 10; background: var(--color-surface, #ffffff); border-top: 1px solid var(--color-border, #e2e8f0); padding: 0.875rem 1.25rem;">
                 <span class="text-xs text-muted">This reduces customer payable dues.</span>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
-                    <button type="submit" class="btn btn-success font-bold">
+                    <button type="submit" id="btn-save-you-got" class="btn btn-success font-bold" style="min-width: 140px; cursor: pointer;">
                         <i class="ti ti-check mr-1"></i> Save You Got
                     </button>
                 </div>
             </div>
         </form>
+    </div>
+</div>
     </div>
 </div>
 
@@ -879,18 +883,18 @@ require YBT_ROOT . '/includes/header.php';
 <!-- MODAL: Edit Customer Profile                                 -->
 <!-- ============================================================ -->
 <div class="modal-backdrop" id="edit-customer-modal" style="display: none;">
-    <div class="modal-card" style="max-width: 560px;">
-        <div class="modal-header">
+    <div class="modal-card" style="max-width: 560px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+        <div class="modal-header" style="flex-shrink: 0;">
             <h3 class="modal-title">
                 <i class="ti ti-user-edit mr-1 text-primary"></i> Edit Customer Profile
             </h3>
             <button type="button" class="modal-close" data-modal-close aria-label="Close">&times;</button>
         </div>
-        <form method="POST" action="<?= url('customer-view.php?id=' . $customer['id']) ?>">
+        <form method="POST" action="<?= url('customer-view.php?id=' . $customer['id']) ?>" style="display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; margin: 0;">
             <?= Csrf::field() ?>
             <input type="hidden" name="action" value="update_customer">
 
-            <div class="modal-body">
+            <div class="modal-body" style="flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 1.25rem;">
                 <div class="grid grid-cols-2 gap-3 mb-3">
                     <div class="form-group">
                         <label class="form-label required">Customer Name *</label>
@@ -951,9 +955,9 @@ require YBT_ROOT . '/includes/header.php';
                 </div>
             </div>
 
-            <div class="modal-footer d-flex justify-between align-center">
+            <div class="modal-footer d-flex justify-between align-center" style="flex-shrink: 0; position: sticky; bottom: 0; z-index: 10; background: var(--color-surface, #ffffff); border-top: 1px solid var(--color-border, #e2e8f0); padding: 0.875rem 1.25rem;">
                 <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
-                <button type="submit" class="btn btn-primary font-bold">
+                <button type="submit" class="btn btn-primary font-bold" style="min-width: 140px; cursor: pointer;">
                     <i class="ti ti-check mr-1"></i> Save Changes
                 </button>
             </div>

@@ -21,7 +21,7 @@ class PlatformSettings {
         }
 
         try {
-            $val = Database::fetchColumn("SELECT value FROM platform_settings WHERE key = ?", [$key]);
+            $val = Database::fetchColumn("SELECT `value` FROM `platform_settings` WHERE `key` = ?", [$key]);
             if ($val !== false && $val !== null) {
                 self::$cache[$key] = (string)$val;
                 return self::$cache[$key];
@@ -38,12 +38,12 @@ class PlatformSettings {
         self::$cache[$key] = $value;
         $now = date('Y-m-d H:i:s');
 
-        $exists = Database::fetchColumn("SELECT COUNT(*) FROM platform_settings WHERE key = ?", [$key]);
+        $exists = Database::fetchColumn("SELECT COUNT(*) FROM `platform_settings` WHERE `key` = ?", [$key]);
         if ($exists) {
             $update = ['value' => $value, 'updated_at' => $now];
             if ($description !== null) $update['description'] = $description;
             if ($isSecret) $update['is_secret'] = 1;
-            Database::update('platform_settings', $update, 'key = ?', [$key]);
+            Database::update('platform_settings', $update, '`key` = ?', [$key]);
             return true;
         } else {
             Database::insert('platform_settings', [
@@ -61,7 +61,7 @@ class PlatformSettings {
      * Get all platform settings
      */
     public static function getAll(): array {
-        $rows = Database::fetchAll("SELECT * FROM platform_settings ORDER BY key ASC");
+        $rows = Database::fetchAll("SELECT * FROM `platform_settings` ORDER BY `key` ASC");
         $res = [];
         foreach ($rows as $r) {
             $res[$r['key']] = $r['value'];

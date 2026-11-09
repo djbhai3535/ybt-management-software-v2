@@ -589,6 +589,16 @@
   animation: modalEnter 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.modal-card > form,
+.modal > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  margin: 0;
+}
+
 .modal-lg {
   max-width: 760px;
 }
@@ -631,12 +641,18 @@
 .modal-body {
   padding: var(--space-6);
   overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .modal-footer {
   padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--color-border);
   background: var(--color-surface);
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
 }
 
 /* ---------- Flash Alerts ---------- */

@@ -29,7 +29,7 @@ if (!function_exists('app_env')) {
 return [
     // Application
     'app_name'    => app_env('APP_NAME', 'DJ CRM Software'),
-    'app_version' => '5.1.0',
+    'app_version' => '5.2.1',
     'cloud_sync_url' => app_env('CLOUD_SYNC_URL', 'https://apkashow.com'),
     'whatsapp_support' => app_env('WHATSAPP_SUPPORT_NUMBER', '923000000000'), // Configurable support number
     'app_url'     => (function() {

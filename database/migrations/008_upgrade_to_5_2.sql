@@ -55,5 +55,5 @@ PREPARE stmt_u_sa FROM @sql_u_sa; EXECUTE stmt_u_sa; DEALLOCATE PREPARE stmt_u_s
 
 -- 7. Record Version in schema_migrations
 INSERT INTO `schema_migrations` (`version`, `description`) 
-VALUES ('5.2.0', 'DJ CRM Software 5.2 — Platform Admin, Advertisements Module, and Parity Patch')
+VALUES ('5.2.1', 'DJ CRM Software 5.2.1 — Live Website Production Hotfix & Layout Parity')
 ON DUPLICATE KEY UPDATE `description` = VALUES(`description`);

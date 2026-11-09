@@ -83,6 +83,13 @@ if ($config['debug']) {
 ini_set('log_errors', '1');
 ini_set('error_log', YBT_ROOT . '/storage/logs/php-errors.log');
 
+// Clear OPcache if requested via trigger or deployment refresh
+if (isset($_GET['opcache_reset']) || isset($_GET['clear_cache'])) {
+    if (function_exists('opcache_reset')) {
+        @opcache_reset();
+    }
+}
+
 // Session configuration & persistent save path
 $sessionSavePath = YBT_ROOT . '/storage/sessions';
 if (getenv('APPDATA')) {
