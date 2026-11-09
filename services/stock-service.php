@@ -159,8 +159,8 @@ class StockService {
             }
 
             Database::query(
-                "UPDATE products SET stock_quantity = ?, sync_status = 'pending', sync_version = sync_version + 1, updated_at = datetime('now') WHERE id = ?",
-                [$newStock, $productId]
+                "UPDATE products SET stock_quantity = ?, sync_status = 'pending', sync_version = sync_version + 1, updated_at = ? WHERE id = ?",
+                [$newStock, date('Y-m-d H:i:s'), $productId]
             );
 
             $movementId = self::recordMovement(
@@ -310,8 +310,8 @@ class StockService {
                 $newStock = $currStock - $qty;
 
                 Database::query(
-                    "UPDATE products SET stock_quantity = ?, updated_at = datetime('now') WHERE id = ?",
-                    [$newStock, $prodId]
+                    "UPDATE products SET stock_quantity = ?, updated_at = ? WHERE id = ?",
+                    [$newStock, date('Y-m-d H:i:s'), $prodId]
                 );
 
                 self::recordMovement(
@@ -400,8 +400,8 @@ class StockService {
                 $newStock = $currStock + $qty;
 
                 Database::query(
-                    "UPDATE products SET stock_quantity = ?, updated_at = datetime('now') WHERE id = ?",
-                    [$newStock, $prodId]
+                    "UPDATE products SET stock_quantity = ?, updated_at = ? WHERE id = ?",
+                    [$newStock, date('Y-m-d H:i:s'), $prodId]
                 );
 
                 self::recordMovement(

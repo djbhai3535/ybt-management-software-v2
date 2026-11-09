@@ -16,37 +16,37 @@ class KhataService {
             'cash' => [
                 'code' => 'cash',
                 'label' => 'Cash',
-                'label_ur' => 'نقد',
+                'label_ur' => 'Cash',
                 'icon' => 'ti ti-cash'
             ],
             'bank_transfer' => [
                 'code' => 'bank_transfer',
                 'label' => 'Bank Transfer',
-                'label_ur' => 'بینک ٹرانسفر',
+                'label_ur' => 'Bank Transfer',
                 'icon' => 'ti ti-building-bank'
             ],
             'jazzcash' => [
                 'code' => 'jazzcash',
                 'label' => 'JazzCash',
-                'label_ur' => 'جاز کیش',
+                'label_ur' => 'JazzCash',
                 'icon' => 'ti ti-device-mobile'
             ],
             'easypaisa' => [
                 'code' => 'easypaisa',
                 'label' => 'Easypaisa',
-                'label_ur' => 'ایزی پیسہ',
+                'label_ur' => 'Easypaisa',
                 'icon' => 'ti ti-wallet'
             ],
             'raast' => [
                 'code' => 'raast',
                 'label' => 'Raast P2P',
-                'label_ur' => 'راست',
+                'label_ur' => 'Raast P2P',
                 'icon' => 'ti ti-bolt'
             ],
             'other' => [
                 'code' => 'other',
                 'label' => 'Other / Cheque',
-                'label_ur' => 'دیگر',
+                'label_ur' => 'Other / Cheque',
                 'icon' => 'ti ti-credit-card'
             ]
         ];
@@ -142,8 +142,8 @@ class KhataService {
             if ($existing) {
                 // Update existing opening balance entry
                 Database::query(
-                    "UPDATE customer_ledger SET debit = ?, credit = ?, running_balance = ?, notes = ?, updated_at = datetime('now') WHERE id = ?",
-                    [$debit, $credit, $runningBalance, $notes, $existing['id']]
+                    "UPDATE customer_ledger SET debit = ?, credit = ?, running_balance = ?, notes = ?, updated_at = ? WHERE id = ?",
+                    [$debit, $credit, $runningBalance, $notes, date('Y-m-d H:i:s'), $existing['id']]
                 );
             } else if ($amount > 0) {
                 // Insert new opening balance entry
@@ -171,8 +171,8 @@ class KhataService {
 
             // Update customer record
             Database::query(
-                "UPDATE customers SET opening_balance = ?, opening_balance_type = ?, updated_at = datetime('now') WHERE id = ? AND business_id = ?",
-                [$amount, $type, $customerId, $businessId]
+                "UPDATE customers SET opening_balance = ?, opening_balance_type = ?, updated_at = ? WHERE id = ? AND business_id = ?",
+                [$amount, $type, date('Y-m-d H:i:s'), $customerId, $businessId]
             );
 
             // Recompute running balance for entire customer ledger
@@ -270,8 +270,8 @@ class KhataService {
 
             // Update customer's current balance
             Database::query(
-                "UPDATE customers SET current_balance = ?, updated_at = datetime('now') WHERE id = ? AND business_id = ?",
-                [$newBal, $customerId, $businessId]
+                "UPDATE customers SET current_balance = ?, balance = ?, updated_at = ? WHERE id = ? AND business_id = ?",
+                [$newBal, $newBal, date('Y-m-d H:i:s'), $customerId, $businessId]
             );
 
             // Auto-enqueue for cloud synchronization into pending_operations queue
@@ -331,7 +331,7 @@ class KhataService {
     }
 
     /**
-     * Record sales invoice debit into customer khata (You Gave / آپ نے دیے)
+     * Record sales invoice debit into customer khata (You Gave)
      */
     public static function recordInvoiceDebit(int $businessId, int $invoiceId, ?int $userId = null): array {
         TenantContext::assertMatches($businessId);
@@ -404,7 +404,7 @@ class KhataService {
     }
 
     /**
-     * Record You Gave (آپ نے دیے) transaction
+     * Record You Gave (You Gave) transaction
      * Debits customer ledger, increases balance, supports item details and attachments.
      */
     public static function recordYouGave(
@@ -451,7 +451,7 @@ class KhataService {
     }
 
     /**
-     * Record You Got (آپ کو ملے) transaction
+     * Record You Got (You Got) transaction
      * Credits customer ledger, decreases balance, supports payment method and attachments.
      */
     public static function recordYouGot(
@@ -498,7 +498,7 @@ class KhataService {
     }
 
     /**
-     * Record a customer payment (You Got / آپ کو ملے)
+     * Record a customer payment (You Got)
      * Handles FIFO invoice allocations, partial payments, and advance payments.
      */
     public static function recordCustomerPayment(int $businessId, array $data, int $userId): array {
@@ -650,7 +650,7 @@ class KhataService {
 
             $payIdempKey = $idempotencyKey ?: "payment_{$businessId}_{$paymentId}";
 
-            // 5. Record Ledger Credit (You Got / آپ کو ملے)
+            // 5. Record Ledger Credit (You Got)
             $ledgerRes = self::recordEntry(
                 $businessId,
                 $customerId,
@@ -838,8 +838,8 @@ class KhataService {
             'from_date' => $fromDate,
             'to_date' => $toDate,
             'period_opening_balance' => $periodOpeningBalance,
-            'total_gave' => $totalGave,           // آپ نے دیے (Debits)
-            'total_got' => $totalGot,             // آپ کو ملے (Credits)
+            'total_gave' => $totalGave,           // You Gave (Debits)
+            'total_got' => $totalGot,             // You Got (Credits)
             'net_closing_balance' => $netClosingBalance,
             'current_balance' => $currentRealBalance,
             'entries' => $entries

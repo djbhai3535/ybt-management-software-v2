@@ -349,12 +349,12 @@ require YBT_ROOT . '/includes/header.php';
                     </div>
                     <div class="info-item mb-2">
                         <span class="info-label text-muted text-xs">Billing City / Town</span>
-                        <div class="info-val font-medium"><?= e($customer['billing_city'] ?: $customer['city'] ?: '—') ?></div>
+                        <div class="info-val font-medium"><?= e(($customer['billing_city'] ?? $customer['city'] ?? '') ?: '—') ?></div>
                     </div>
                     <div class="info-item mb-2">
                         <span class="info-label text-muted text-xs">Full Address</span>
                         <div class="info-val text-sm">
-                            <?= e($customer['billing_address_line1'] ?: $customer['address'] ?: '—') ?>
+                            <?= e(($customer['billing_address_line1'] ?? $customer['billing_address'] ?? $customer['address'] ?? '') ?: '—') ?>
                         </div>
                     </div>
                     <?php if (!empty($customer['notes'])): ?>
@@ -929,7 +929,7 @@ require YBT_ROOT . '/includes/header.php';
                 <div class="grid grid-cols-2 gap-3 mb-3">
                     <div class="form-group">
                         <label class="form-label">Billing City</label>
-                        <input type="text" name="billing_city" class="form-input" value="<?= e($customer['billing_city'] ?: $customer['city'] ?: '') ?>" placeholder="e.g. Lahore">
+                        <input type="text" name="billing_city" class="form-input" value="<?= e($customer['billing_city'] ?? $customer['city'] ?? '') ?>" placeholder="e.g. Lahore">
                     </div>
                     <div class="form-group">
                         <label class="form-label">Status</label>
@@ -942,7 +942,7 @@ require YBT_ROOT . '/includes/header.php';
 
                 <div class="form-group mb-3">
                     <label class="form-label">Address</label>
-                    <input type="text" name="billing_address" class="form-input" value="<?= e($customer['billing_address'] ?: $customer['address'] ?: '') ?>" placeholder="Shop / Street Address">
+                    <input type="text" name="billing_address" class="form-input" value="<?= e($customer['billing_address_line1'] ?? $customer['billing_address'] ?? $customer['address'] ?? '') ?>" placeholder="Shop / Street Address">
                 </div>
 
                 <div class="form-group mb-1">

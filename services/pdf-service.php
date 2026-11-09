@@ -33,11 +33,11 @@ class PdfService {
             <?php if ($isCancelled): ?>
             <!-- Cancelled Watermark & Banner -->
             <div class="cancelled-watermark" style="position: absolute; top: 35%; left: 10%; transform: rotate(-25deg); font-size: 70px; font-weight: 900; color: rgba(220, 38, 38, 0.15); pointer-events: none; z-index: 10; border: 8px solid rgba(220, 38, 38, 0.2); padding: 10px 40px; border-radius: 12px; text-transform: uppercase;">
-                CANCELLED / منسوخ
+                CANCELLED
             </div>
             <div class="cancelled-alert" style="background: #fef2f2; border: 1px solid #f87171; color: #991b1b; padding: 10px 16px; border-radius: 6px; margin-bottom: 20px; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between;">
                 <span>⚠️ THIS INVOICE IS CANCELLED & RESTOCKED — NOT VALID FOR PAYMENT</span>
-                <span dir="rtl" style="font-family: 'Noto Nastaliq Urdu', 'Urdu Typesetting', sans-serif;">یہ انوائس منسوخ ہو چکی ہے اور ادائیگی کے لیے قابل قبول نہیں ہے۔</span>
+                <span style="font-size: 11px;">This invoice is cancelled and not valid for payment.</span>
             </div>
             <?php endif; ?>
 
@@ -57,11 +57,11 @@ class PdfService {
                         <?= e($business['address_line1'] ?? '') ?> <?= e($business['address_line2'] ?? '') ?><br>
                         <?= e($business['city'] ?? '') ?><?= !empty($business['state']) ? ', ' . e($business['state']) : '' ?><?= !empty($business['country']) ? ' (' . e($business['country']) . ')' : '' ?><br>
                         <?php if (!empty($business['ntn'])): ?>
-                            <strong>NTN / ٹیکس نمبر:</strong> <?= e($business['ntn']) ?> &nbsp;|&nbsp;
+                            <strong>NTN:</strong> <?= e($business['ntn']) ?> &nbsp;|&nbsp;
                         <?php elseif (!empty($business['gstin'])): ?>
                             <strong>GSTIN:</strong> <?= e($business['gstin']) ?> &nbsp;|&nbsp;
                         <?php endif; ?>
-                        <strong>Phone / فون:</strong> <?= e($business['phone'] ?: '—') ?><br>
+                        <strong>Phone:</strong> <?= e($business['phone'] ?: '—') ?><br>
                         <?php if (!empty($business['email'])): ?>
                             <strong>Email:</strong> <?= e($business['email']) ?>
                         <?php endif; ?>
@@ -70,13 +70,12 @@ class PdfService {
 
                 <div class="invoice-badge-box" style="text-align: right;">
                     <h1 class="invoice-title" style="font-size: 24px; font-weight: 900; color: #0284c7; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">TAX INVOICE</h1>
-                    <div class="urdu-title" style="font-size: 15px; color: #64748b; font-family: 'Noto Nastaliq Urdu', 'Urdu Typesetting', Tahoma; margin-top: 2px;">انوائس / بل</div>
                     <div style="margin-top: 10px; font-size: 13px;">
                         <span style="color: #64748b;">Invoice No:</span>
                         <strong style="font-size: 15px; color: #0f172a;"><?= e($invoice['invoice_number']) ?></strong>
                     </div>
                     <div style="font-size: 12px; color: #334155; margin-top: 4px;">
-                        <span style="color: #64748b;">Date (تاریخ):</span>
+                        <span style="color: #64748b;">Date:</span>
                         <strong><?= formatDate($invoice['invoice_date']) ?></strong>
                     </div>
                     <?php if (!empty($invoice['due_date'])): ?>
@@ -112,14 +111,14 @@ class PdfService {
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px;">
                 <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px;">
                     <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
-                        <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b;">Billed To / خریدار:</span>
+                        <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b;">Billed To:</span>
                     </div>
                     <h4 style="font-size: 16px; font-weight: 800; color: #0f172a; margin: 0;"><?= e($invoice['customer_name']) ?></h4>
                     <?php if (!empty($invoice['company_name'])): ?>
                         <div style="color: #475569; font-size: 13px; font-weight: 600;"><?= e($invoice['company_name']) ?></div>
                     <?php endif; ?>
                     <div style="font-size: 12px; color: #334155; margin-top: 6px; line-height: 1.5;">
-                        <strong>Phone / فون:</strong> <?= e($invoice['customer_phone'] ?: '—') ?><br>
+                        <strong>Phone:</strong> <?= e($invoice['customer_phone'] ?: '—') ?><br>
                         <?php if (!empty($invoice['customer_email'])): ?>
                             <strong>Email:</strong> <?= e($invoice['customer_email']) ?><br>
                         <?php endif; ?>
@@ -130,7 +129,7 @@ class PdfService {
                 </div>
 
                 <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px;">
-                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b;">Payment Details / ادائیگی کے طریقے:</span>
+                    <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b;">Payment Details:</span>
                     <div style="font-size: 12px; color: #334155; margin-top: 6px; line-height: 1.6;">
                         <?php if (!empty($business['bank_name'])): ?>
                             <div><strong>Bank:</strong> <?= e($business['bank_name']) ?></div>
@@ -142,13 +141,13 @@ class PdfService {
                             <div><strong>IBAN:</strong> <?= e($business['iban']) ?></div>
                         <?php endif; ?>
                         <?php if (!empty($business['raast_id'])): ?>
-                            <div><strong>Raast ID (راست):</strong> <?= e($business['raast_id']) ?></div>
+                            <div><strong>Raast ID:</strong> <?= e($business['raast_id']) ?></div>
                         <?php endif; ?>
                         <?php if (!empty($business['jazzcash_number'])): ?>
-                            <div><strong>JazzCash (جاز کیش):</strong> <?= e($business['jazzcash_number']) ?></div>
+                            <div><strong>JazzCash:</strong> <?= e($business['jazzcash_number']) ?></div>
                         <?php endif; ?>
                         <?php if (!empty($business['easypaisa_number'])): ?>
-                            <div><strong>Easypaisa (ایزی پیسہ):</strong> <?= e($business['easypaisa_number']) ?></div>
+                            <div><strong>Easypaisa:</strong> <?= e($business['easypaisa_number']) ?></div>
                         <?php endif; ?>
                         <?php if (!empty($business['upi_id'])): ?>
                             <div><strong>UPI ID:</strong> <?= e($business['upi_id']) ?></div>
@@ -166,12 +165,12 @@ class PdfService {
                     <tr style="background: #0f172a; color: #ffffff;">
                         <th style="width: 5%; padding: 10px 8px; text-align: center; border: 1px solid #0f172a;">#</th>
                         <th style="width: 45%; padding: 10px 8px; text-align: left; border: 1px solid #0f172a;">
-                            Item & Description <span style="font-weight: normal; font-size: 11px;">(تفصیل)</span>
+                            Item & Description
                         </th>
-                        <th style="width: 10%; padding: 10px 8px; text-align: center; border: 1px solid #0f172a;">Qty <span style="font-weight: normal; font-size: 11px;">(تعداد)</span></th>
-                        <th style="width: 18%; padding: 10px 8px; text-align: right; border: 1px solid #0f172a;">Unit Price <span style="font-weight: normal; font-size: 11px;">(قیمت)</span></th>
+                        <th style="width: 10%; padding: 10px 8px; text-align: center; border: 1px solid #0f172a;">Qty</th>
+                        <th style="width: 18%; padding: 10px 8px; text-align: right; border: 1px solid #0f172a;">Unit Price</th>
                         <th style="width: 7%; padding: 10px 8px; text-align: right; border: 1px solid #0f172a;">Tax</th>
-                        <th style="width: 15%; padding: 10px 8px; text-align: right; border: 1px solid #0f172a;">Total <span style="font-weight: normal; font-size: 11px;">(میزان)</span></th>
+                        <th style="width: 15%; padding: 10px 8px; text-align: right; border: 1px solid #0f172a;">Total</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -221,7 +220,7 @@ class PdfService {
 
                     <?php if (!empty($invoice['terms'])): ?>
                     <div style="font-size: 11px; color: #64748b; line-height: 1.5;">
-                        <strong>Terms & Conditions / شرائط و ضوابط:</strong><br>
+                        <strong>Terms & Conditions:</strong><br>
                         <?= nl2br(e($invoice['terms'])) ?>
                     </div>
                     <?php else: ?>
@@ -235,36 +234,36 @@ class PdfService {
                 <div>
                     <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
                         <tr>
-                            <td style="padding: 6px 0; color: #64748b;">Subtotal (کل رقم):</td>
+                            <td style="padding: 6px 0; color: #64748b;">Subtotal:</td>
                             <td style="padding: 6px 0; text-align: right; font-weight: 600;"><?= formatCurrency((float)($invoice['subtotal'] ?? $invoice['grand_total']), $symbol) ?></td>
                         </tr>
                         <?php if ((float)($invoice['discount_total'] ?? 0) > 0): ?>
                         <tr>
-                            <td style="padding: 6px 0; color: #16a34a;">Discount (رعایت):</td>
+                            <td style="padding: 6px 0; color: #16a34a;">Discount:</td>
                             <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #16a34a;">- <?= formatCurrency((float)$invoice['discount_total'], $symbol) ?></td>
                         </tr>
                         <?php endif; ?>
                         <?php if ((float)($invoice['tax_total'] ?? 0) > 0): ?>
                         <tr>
-                            <td style="padding: 6px 0; color: #64748b;">Tax (ٹیکس):</td>
+                            <td style="padding: 6px 0; color: #64748b;">Tax:</td>
                             <td style="padding: 6px 0; text-align: right; font-weight: 600;"><?= formatCurrency((float)$invoice['tax_total'], $symbol) ?></td>
                         </tr>
                         <?php endif; ?>
                         <tr style="border-top: 2px solid #0f172a; border-bottom: 2px solid #0f172a;">
-                            <td style="padding: 10px 0; font-size: 14px; font-weight: 800; color: #0f172a;">Grand Total (کل میزان):</td>
+                            <td style="padding: 10px 0; font-size: 14px; font-weight: 800; color: #0f172a;">Grand Total:</td>
                             <td style="padding: 10px 0; text-align: right; font-size: 16px; font-weight: 900; color: #0284c7;">
                                 <?= formatCurrency((float)$invoice['grand_total'], $symbol) ?>
                             </td>
                         </tr>
                         <tr>
-                            <td style="padding: 8px 0; color: #15803d; font-weight: 600;">Amount Paid (وصول شدہ):</td>
+                            <td style="padding: 8px 0; color: #15803d; font-weight: 600;">Amount Paid:</td>
                             <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #15803d;">
                                 <?= formatCurrency((float)$invoice['amount_paid'], $symbol) ?>
                             </td>
                         </tr>
                         <tr style="border-top: 1px dashed #cbd5e1;">
                             <td style="padding: 8px 0; font-weight: 800; color: <?= (float)$invoice['outstanding'] > 0 ? '#dc2626' : '#15803d' ?>;">
-                                Balance Due (بقیہ رقم):
+                                Balance Due:
                             </td>
                             <td style="padding: 8px 0; text-align: right; font-size: 14px; font-weight: 900; color: <?= (float)$invoice['outstanding'] > 0 ? '#dc2626' : '#15803d' ?>;">
                                 <?= formatCurrency((float)$invoice['outstanding'], $symbol) ?>
@@ -272,7 +271,7 @@ class PdfService {
                         </tr>
                         <?php if ($customerKhataBalance !== null): ?>
                         <tr style="background: #f1f5f9;">
-                            <td style="padding: 6px 8px; font-size: 11px; color: #475569;">Total Khata (مجموعی کھاتہ):</td>
+                            <td style="padding: 6px 8px; font-size: 11px; color: #475569;">Total Khata Balance:</td>
                             <td style="padding: 6px 8px; text-align: right; font-size: 12px; font-weight: 800; color: <?= $customerKhataBalance > 0 ? '#dc2626' : '#15803d' ?>;">
                                 <?= formatCurrency(abs($customerKhataBalance), $symbol) ?> <?= $customerKhataBalance > 0 ? '(Dr)' : '(Cr)' ?>
                             </td>
@@ -285,14 +284,13 @@ class PdfService {
             <!-- Footer Signatures Section -->
             <div style="border-top: 1px solid #cbd5e1; padding-top: 18px; display: flex; justify-content: space-between; align-items: flex-end; margin-top: 30px;">
                 <div style="font-size: 11px; color: #64748b; max-width: 55%;">
-                    Thank you for your business! / آپ کی تشریف آوری کا بہت شکریہ<br>
+                    Thank you for your business!<br>
                     This is a computer-generated invoice and requires no physical signature.<br>
                     <span style="color: #94a3b8; font-size: 10px;">Powered by YBT Management Software</span>
                 </div>
                 <div style="text-align: center; width: 180px;">
                     <div style="border-bottom: 1px solid #0f172a; height: 35px; margin-bottom: 6px;"></div>
                     <div style="font-size: 12px; font-weight: 700; color: #0f172a;">Authorized Signature</div>
-                    <div style="font-size: 11px; color: #64748b; font-family: 'Noto Nastaliq Urdu', 'Urdu Typesetting', sans-serif;">مجاز دستخط / مہر</div>
                 </div>
             </div>
         </div>

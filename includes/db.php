@@ -197,6 +197,50 @@ class Database {
             } elseif (isset($data['tax_number']) && !isset($data['gstin'])) {
                 $data['gstin'] = $data['tax_number'];
             }
+        } elseif ($cleanTable === 'customers') {
+            if (isset($data['billing_city']) && !isset($data['city'])) {
+                $data['city'] = $data['billing_city'];
+            } elseif (isset($data['city']) && !isset($data['billing_city'])) {
+                $data['billing_city'] = $data['city'];
+            }
+            if (isset($data['billing_address_line1']) && !isset($data['address'])) {
+                $data['address'] = $data['billing_address_line1'];
+            } elseif (isset($data['billing_address']) && !isset($data['address'])) {
+                $data['address'] = $data['billing_address'];
+            } elseif (isset($data['address'])) {
+                if (!isset($data['billing_address_line1'])) {
+                    $data['billing_address_line1'] = $data['address'];
+                }
+                if (!isset($data['billing_address'])) {
+                    $data['billing_address'] = $data['address'];
+                }
+            }
+            if (isset($data['current_balance']) && !isset($data['balance'])) {
+                $data['balance'] = $data['current_balance'];
+            } elseif (isset($data['balance']) && !isset($data['current_balance'])) {
+                $data['current_balance'] = $data['balance'];
+            }
+            if (isset($data['uuid']) && !isset($data['sync_uuid'])) {
+                $data['sync_uuid'] = $data['uuid'];
+            } elseif (isset($data['sync_uuid']) && !isset($data['uuid'])) {
+                $data['uuid'] = $data['sync_uuid'];
+            }
+        } elseif ($cleanTable === 'ai_provider_configs') {
+            if (isset($data['provider_type']) && !isset($data['provider_slug'])) {
+                $data['provider_slug'] = $data['provider_type'];
+            } elseif (isset($data['provider_slug']) && !isset($data['provider_type'])) {
+                $data['provider_type'] = $data['provider_slug'];
+            }
+            if (isset($data['base_url']) && !isset($data['api_endpoint'])) {
+                $data['api_endpoint'] = $data['base_url'];
+            } elseif (isset($data['api_endpoint']) && !isset($data['base_url'])) {
+                $data['base_url'] = $data['api_endpoint'];
+            }
+            if (isset($data['model_id']) && !isset($data['model_name'])) {
+                $data['model_name'] = $data['model_id'];
+            } elseif (isset($data['model_name']) && !isset($data['model_id'])) {
+                $data['model_id'] = $data['model_name'];
+            }
         }
 
         // Filter against existing table columns to prevent Unknown column errors
@@ -339,6 +383,10 @@ class Database {
             self::getInstance();
         }
         return self::$driver;
+    }
+
+    public static function driver(): string {
+        return self::getDriver();
     }
 
     /**

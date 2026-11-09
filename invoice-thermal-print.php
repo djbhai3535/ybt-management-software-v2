@@ -64,7 +64,7 @@ $whatsAppUrl = WhatsAppService::getClickToChatUrl($invoice, $business, url('invo
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= e($invoice['invoice_number']) ?> — Thermal Receipt (رسید)</title>
+    <title><?= e($invoice['invoice_number']) ?> — Thermal Receipt</title>
     <link rel="stylesheet" href="<?= url('assets/css/tabler-icons.min.css') ?>">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -255,7 +255,7 @@ $whatsAppUrl = WhatsAppService::getClickToChatUrl($invoice, $business, url('invo
 
     <?php if ($isCancelled): ?>
     <div style="border: 2px solid #000; padding: 4px; text-align: center; margin: 4px 0; font-weight: bold;">
-        *** CANCELLED / منسوخ ***<br>
+        *** CANCELLED ***<br>
         <span style="font-size: 9px;">NOT VALID FOR PAYMENT</span>
     </div>
     <div class="divider"></div>
@@ -287,7 +287,7 @@ $whatsAppUrl = WhatsAppService::getClickToChatUrl($invoice, $business, url('invo
     <table class="receipt-table">
         <thead>
             <tr>
-                <th class="text-left" style="width: <?= $paperSize === '58mm' ? '46%' : '52%' ?>;">Item (تفصیل)</th>
+                <th class="text-left" style="width: <?= $paperSize === '58mm' ? '46%' : '52%' ?>;">Item</th>
                 <th class="text-center" style="width: 18%;">Qty</th>
                 <th class="text-right" style="width: 30%;">Total</th>
             </tr>
@@ -319,18 +319,18 @@ $whatsAppUrl = WhatsAppService::getClickToChatUrl($invoice, $business, url('invo
     <!-- Financial Summary -->
     <div style="font-size: 11px;">
         <div style="display: flex; justify-content: space-between; padding: 1px 0;">
-            <span>Subtotal (میزان):</span>
+            <span>Subtotal:</span>
             <span><?= formatCurrency((float)$invoice['subtotal'], $symbol) ?></span>
         </div>
         <?php if ((float)$invoice['discount_total'] > 0): ?>
         <div style="display: flex; justify-content: space-between; padding: 1px 0;">
-            <span>Discount (رعایت):</span>
+            <span>Discount:</span>
             <span>-<?= formatCurrency((float)$invoice['discount_total'], $symbol) ?></span>
         </div>
         <?php endif; ?>
         <?php if ((float)$invoice['tax_total'] > 0): ?>
         <div style="display: flex; justify-content: space-between; padding: 1px 0;">
-            <span>Tax (ٹیکس):</span>
+            <span>Tax:</span>
             <span><?= formatCurrency((float)$invoice['tax_total'], $symbol) ?></span>
         </div>
         <?php endif; ?>
@@ -338,17 +338,17 @@ $whatsAppUrl = WhatsAppService::getClickToChatUrl($invoice, $business, url('invo
         <div class="double-divider"></div>
 
         <div style="display: flex; justify-content: space-between; font-size: <?= $paperSize === '58mm' ? '12px' : '14px' ?>; font-weight: 900;">
-            <span>TOTAL (کل رقم):</span>
+            <span>TOTAL:</span>
             <span><?= formatCurrency((float)$invoice['grand_total'], $symbol) ?></span>
         </div>
 
         <div style="display: flex; justify-content: space-between; padding: 2px 0; margin-top: 3px;">
-            <span>Paid (وصول شدہ):</span>
+            <span>Paid:</span>
             <span class="font-bold"><?= formatCurrency((float)$invoice['amount_paid'], $symbol) ?></span>
         </div>
 
         <div style="display: flex; justify-content: space-between; padding: 2px 0; font-weight: bold;">
-            <span>Balance (بقیہ رقم):</span>
+            <span>Balance:</span>
             <span><?= formatCurrency((float)$invoice['outstanding'], $symbol) ?></span>
         </div>
     </div>
@@ -357,9 +357,9 @@ $whatsAppUrl = WhatsAppService::getClickToChatUrl($invoice, $business, url('invo
 
     <!-- Footer -->
     <div class="text-center" style="font-size: 10px; margin-top: 6px;">
-        <div class="font-bold">Thank you for your visit! / شکریہ</div>
+        <div class="font-bold">Thank you for your visit!</div>
         <div>No warranty without original receipt</div>
-        <div class="urdu-text" style="margin-top: 2px;">سامان کی واپسی رسید کے بغیر ممکن نہیں۔</div>
+        <div style="margin-top: 2px;">Goods once sold cannot be returned without receipt.</div>
         <div style="margin-top: 8px; font-size: 9px; color: #555;">
             === YBT Management Software ===
         </div>

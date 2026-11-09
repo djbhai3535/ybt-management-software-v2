@@ -95,12 +95,30 @@ class AIProviderService {
      * Get all configured providers for a business
      */
     public static function getAll(int $businessId): array {
+        $cols = Database::getTableColumns('ai_provider_configs');
+        $orderBy = isset($cols['is_default']) 
+            ? "ORDER BY is_default DESC, is_active DESC, created_at DESC" 
+            : "ORDER BY is_active DESC, created_at DESC";
+
         $rows = Database::fetchAll(
-            "SELECT * FROM ai_provider_configs WHERE business_id = ? ORDER BY is_default DESC, is_active DESC, created_at DESC",
+            "SELECT * FROM ai_provider_configs WHERE business_id = ? {$orderBy}",
             [$businessId]
         );
 
         foreach ($rows as &$row) {
+            if (!isset($row['is_default'])) {
+                $row['is_default'] = (int)($row['is_active'] ?? 0);
+            }
+            if (!isset($row['provider_type']) && isset($row['provider_slug'])) {
+                $row['provider_type'] = $row['provider_slug'];
+            }
+            if (!isset($row['base_url']) && isset($row['api_endpoint'])) {
+                $row['base_url'] = $row['api_endpoint'];
+            }
+            if (!isset($row['model_id']) && isset($row['model_name'])) {
+                $row['model_id'] = $row['model_name'];
+            }
+
             $row['has_key'] = !empty($row['api_key_encrypted']);
             // Mask key for safety (only display last 4 characters)
             if ($row['has_key']) {
@@ -118,10 +136,15 @@ class AIProviderService {
      * Get active default provider config for business
      */
     public static function getActive(int $businessId): ?array {
-        $row = Database::fetch(
-            "SELECT * FROM ai_provider_configs WHERE business_id = ? AND is_active = 1 AND is_default = 1 LIMIT 1",
-            [$businessId]
-        );
+        $cols = Database::getTableColumns('ai_provider_configs');
+        $row = null;
+
+        if (isset($cols['is_default'])) {
+            $row = Database::fetch(
+                "SELECT * FROM ai_provider_configs WHERE business_id = ? AND is_active = 1 AND is_default = 1 LIMIT 1",
+                [$businessId]
+            );
+        }
 
         if (!$row) {
             // Fallback to any active provider
@@ -129,6 +152,21 @@ class AIProviderService {
                 "SELECT * FROM ai_provider_configs WHERE business_id = ? AND is_active = 1 LIMIT 1",
                 [$businessId]
             );
+        }
+
+        if ($row) {
+            if (!isset($row['is_default'])) {
+                $row['is_default'] = (int)($row['is_active'] ?? 1);
+            }
+            if (!isset($row['provider_type']) && isset($row['provider_slug'])) {
+                $row['provider_type'] = $row['provider_slug'];
+            }
+            if (!isset($row['base_url']) && isset($row['api_endpoint'])) {
+                $row['base_url'] = $row['api_endpoint'];
+            }
+            if (!isset($row['model_id']) && isset($row['model_name'])) {
+                $row['model_id'] = $row['model_name'];
+            }
         }
 
         if ($row && !empty($row['api_key_encrypted'])) {
@@ -196,8 +234,11 @@ class AIProviderService {
             $modelId = $presets[$providerType]['default_model'];
         }
 
+        $cols = Database::getTableColumns('ai_provider_configs');
+        $hasDefaultCol = isset($cols['is_default']);
+
         // If marked default, unset any existing default for this business
-        if ($isDefault) {
+        if ($isDefault && $hasDefaultCol) {
             Database::query(
                 "UPDATE ai_provider_configs SET is_default = 0 WHERE business_id = ?",
                 [$businessId]
@@ -212,9 +253,12 @@ class AIProviderService {
             'model_id' => $modelId,
             'temperature' => $temperature,
             'max_tokens' => $maxTokens,
-            'is_active' => $isActive,
-            'is_default' => $isDefault
+            'is_active' => $isActive
         ];
+
+        if ($hasDefaultCol) {
+            $record['is_default'] = $isDefault;
+        }
 
         // Encrypt and store API key if provided
         if (!empty($rawApiKey)) {

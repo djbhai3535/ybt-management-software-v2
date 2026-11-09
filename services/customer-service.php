@@ -73,6 +73,12 @@ class CustomerService {
                 LIMIT {$perPage} OFFSET {$offset}";
 
         $customers = Database::fetchAll($sql, $params);
+        foreach ($customers as &$c) {
+            $c['city'] = $c['billing_city'] ?? '';
+            $c['address'] = $c['billing_address_line1'] ?? '';
+            $c['balance'] = (float)($c['current_balance'] ?? 0);
+        }
+        unset($c);
 
         return [
             'data' => $customers,
@@ -141,6 +147,11 @@ class CustomerService {
 
         // Customer Khata Statement
         $customer['khata'] = KhataService::getStatement($customerId, $businessId);
+
+        // Compatibility aliases for legacy templates and reports
+        $customer['city'] = $customer['billing_city'] ?? '';
+        $customer['address'] = $customer['billing_address_line1'] ?? '';
+        $customer['balance'] = (float)($customer['current_balance'] ?? 0);
 
         return $customer;
     }

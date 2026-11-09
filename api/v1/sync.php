@@ -585,7 +585,7 @@ if ($method === 'POST') {
                                 ifsc_code = COALESCE(?, ifsc_code),
                                 wallet_id = COALESCE(?, wallet_id),
                                 wallet_type = COALESCE(?, wallet_type),
-                                updated_at = datetime('now')
+                                updated_at = ?
                              WHERE id = ?",
                             [
                                 $payload['legal_name'] ?? null,
@@ -607,6 +607,7 @@ if ($method === 'POST') {
                                 $payload['ifsc_code'] ?? null,
                                 $payload['wallet_id'] ?? $payload['upi_id'] ?? null,
                                 $payload['wallet_type'] ?? null,
+                                date('Y-m-d H:i:s'),
                                 $biz['id']
                             ]
                         );

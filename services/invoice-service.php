@@ -195,7 +195,7 @@ class InvoiceService {
             if ($status !== 'draft') {
                 require_once __DIR__ . '/stock-service.php';
                 StockService::deductForInvoice($businessId, $invoiceId, $userId);
-                // Stage 3: Customer Khata / Ledger Debit Entry (You Gave / آپ نے دیے)
+                // Stage 3: Customer Khata / Ledger Debit Entry (You Gave)
                 require_once __DIR__ . '/khata-service.php';
                 KhataService::recordInvoiceDebit($businessId, $invoiceId, $userId);
             }

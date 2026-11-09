@@ -77,7 +77,7 @@ $whatsAppUrl = WhatsAppService::getClickToChatUrl($invoice, $business, url('invo
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= e($invoice['invoice_number']) ?> — Tax Invoice (ٹیکس انوائس)</title>
+    <title><?= e($invoice['invoice_number']) ?> — Tax Invoice</title>
     <link rel="stylesheet" href="<?= url('assets/css/tabler-icons.min.css') ?>">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }

@@ -61,14 +61,14 @@ class Permissions {
                 'leads.view', 'leads.create', 'leads.edit',
                 'products.view', 'products.create', 'products.edit',
                 'invoices.view', 'invoices.create', 'invoices.edit',
-                'payments.view', 'payments.create',
+                'payments.view', 'payments.create', 'payments.record',
                 'expenses.view', 'expenses.create', 'tasks.view', 'tasks.create'
             ];
         } else {
             self::$userPermissions = [
-                'dashboard.view', 'customers.view', 'customers.create',
+                'dashboard.view', 'customers.view', 'customers.create', 'customers.edit',
                 'products.view', 'invoices.view', 'invoices.create',
-                'payments.view', 'payments.create'
+                'payments.view', 'payments.create', 'payments.record'
             ];
         }
         return self::$userPermissions;
@@ -78,10 +78,16 @@ class Permissions {
      * Check if current user has a specific permission
      */
     public static function has(string $permissionKey): bool {
-        if (Auth::isOwner()) return true;
+        if (Auth::isOwner() || Auth::isSuperAdmin()) return true;
         $perms = self::load();
         if (in_array('*', $perms, true)) return true;
-        return in_array($permissionKey, $perms, true);
+        if (in_array($permissionKey, $perms, true)) return true;
+
+        // Alias compatibility
+        if ($permissionKey === 'payments.record' && in_array('payments.create', $perms, true)) return true;
+        if ($permissionKey === 'payments.create' && in_array('payments.record', $perms, true)) return true;
+
+        return false;
     }
 
     /**

@@ -94,8 +94,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     Permissions::require('settings.edit');
     if (Csrf::validate($_POST['_csrf_token'] ?? '')) {
         $defId = (int)($_POST['provider_id'] ?? 0);
-        Database::query("UPDATE ai_provider_configs SET is_default = 0 WHERE business_id = ?", [$businessId]);
-        Database::query("UPDATE ai_provider_configs SET is_default = 1, is_active = 1 WHERE id = ? AND business_id = ?", [$defId, $businessId]);
+        $cols = Database::getTableColumns('ai_provider_configs');
+        if (isset($cols['is_default'])) {
+            Database::query("UPDATE ai_provider_configs SET is_default = 0 WHERE business_id = ?", [$businessId]);
+            Database::query("UPDATE ai_provider_configs SET is_default = 1, is_active = 1 WHERE id = ? AND business_id = ?", [$defId, $businessId]);
+        } else {
+            Database::query("UPDATE ai_provider_configs SET is_active = 0 WHERE business_id = ?", [$businessId]);
+            Database::query("UPDATE ai_provider_configs SET is_active = 1 WHERE id = ? AND business_id = ?", [$defId, $businessId]);
+        }
         Flash::success('Default active AI Provider updated.');
         header('Location: ' . url('settings.php#section-ai-providers'));
         exit;

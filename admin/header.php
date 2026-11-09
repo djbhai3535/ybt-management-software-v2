@@ -21,8 +21,16 @@ $pendingSubCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM business_sub
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= e($pageTitle) ?> — DJ CRM Super Admin</title>
-    <link rel="stylesheet" href="<?= url('assets/css/main.css') ?>">
-    <link rel="stylesheet" href="<?= url('assets/css/fonts/tabler-icons.css') ?>">
+    <!-- Tabler Icons (Local with CDN fallback) -->
+    <link rel="stylesheet" href="<?= asset('css/tabler-icons.min.css') ?>">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+
+    <!-- Core Stylesheets -->
+    <link rel="stylesheet" href="<?= asset('css/global.css') ?>">
+    <link rel="stylesheet" href="<?= asset('css/themes.css') ?>">
+    <link rel="stylesheet" href="<?= asset('css/components.css') ?>">
+    <link rel="stylesheet" href="<?= asset('css/layout.css') ?>">
+    <link rel="stylesheet" href="<?= asset('css/responsive.css') ?>">
     <style>
         :root {
             --admin-primary: #f59e0b;
@@ -136,6 +144,15 @@ $pendingSubCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM business_sub
             </a>
             <a href="<?= url('admin/announcements.php') ?>" class="admin-nav-link <?= $adminPage === 'announcements.php' ? 'active' : '' ?>">
                 <i class="ti ti-speakerphone"></i> Announcements
+            </a>
+            <a href="<?= url('admin/advertisements.php') ?>" class="admin-nav-link <?= $adminPage === 'advertisements.php' ? 'active' : '' ?>">
+                <i class="ti ti-ad"></i> Advertisements
+            </a>
+            <a href="<?= url('admin/activity-logs.php') ?>" class="admin-nav-link <?= $adminPage === 'activity-logs.php' ? 'active' : '' ?>">
+                <i class="ti ti-file-text"></i> Audit Logs
+            </a>
+            <a href="<?= url('admin/system-health.php') ?>" class="admin-nav-link <?= $adminPage === 'system-health.php' ? 'active' : '' ?>">
+                <i class="ti ti-heart-rate-monitor"></i> System Health
             </a>
             <a href="<?= url('dashboard.php') ?>" class="admin-nav-link text-muted" title="Switch to Shop View">
                 <i class="ti ti-arrow-back-up"></i> Shop View

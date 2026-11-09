@@ -151,7 +151,7 @@ if ($action === 'trigger_sync') {
             );
             $pushedCount = 0;
             foreach ($pendingOps as $pop) {
-                Database::query("UPDATE pending_operations SET status = 'synced', synced_at = datetime('now') WHERE id = ?", [$pop['id']]);
+                Database::query("UPDATE pending_operations SET status = 'synced', synced_at = ? WHERE id = ?", [date('Y-m-d H:i:s'), $pop['id']]);
                 $pushedCount++;
             }
             echo json_encode([

@@ -246,8 +246,8 @@ class StaffService {
 
         $newVerif = $isActive ? 'verified' : 'suspended';
         Database::query(
-            "UPDATE users SET is_active = ?, verification_status = ?, updated_at = datetime('now') WHERE id = ? AND business_id = ?",
-            [$isActive ? 1 : 0, $newVerif, $staffUserId, $businessId]
+            "UPDATE users SET is_active = ?, verification_status = ?, updated_at = ? WHERE id = ? AND business_id = ?",
+            [$isActive ? 1 : 0, $newVerif, date('Y-m-d H:i:s'), $staffUserId, $businessId]
         );
 
         // Update local session if on SQLite

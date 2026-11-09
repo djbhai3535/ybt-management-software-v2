@@ -72,19 +72,19 @@ $payments = Database::fetchAll(
     [$businessId]
 );
 
-$pageTitle = 'Payments & Receipts (وصولیاں)';
+$pageTitle = 'Payments & Receipts';
 require YBT_ROOT . '/includes/header.php';
 ?>
 
 <div class="page-header d-flex justify-between align-center mb-4">
     <div>
-        <h1 class="page-title">Payments & Receipts (وصولیاں)</h1>
+        <h1 class="page-title">Payments & Receipts</h1>
         <p class="page-subtitle">Track collections, bank transfers, mobile wallets (JazzCash/Easypaisa), Raast, and cash receipts</p>
     </div>
     <div class="page-header-actions">
         <?php if (Permissions::has('payments.record')): ?>
         <button type="button" class="btn btn-primary" data-modal-target="record-payment-modal">
-            <i class="ti ti-cash mr-1"></i> Record Payment (رقم وصول کریں)
+            <i class="ti ti-cash mr-1"></i> Record Payment
         </button>
         <?php endif; ?>
     </div>
@@ -118,9 +118,9 @@ require YBT_ROOT . '/includes/header.php';
                             <th>Customer Name</th>
                             <th>Allocated Invoice</th>
                             <th>Date</th>
-                            <th>Method (طریقہ)</th>
+                            <th>Payment Method</th>
                             <th>Reference / TID</th>
-                            <th class="text-right">Amount Received (وصولی)</th>
+                            <th class="text-right">Amount Received</th>
                             <th>Status</th>
                         </tr>
                     </thead>
@@ -176,7 +176,7 @@ require YBT_ROOT . '/includes/header.php';
 <div class="modal-backdrop <?= (isset($_GET['action']) && $_GET['action'] === 'record') ? 'active' : '' ?>" id="record-payment-modal">
     <div class="modal-card">
         <div class="modal-header">
-            <h3 class="modal-title"><i class="ti ti-cash mr-1 text-success"></i> Record Incoming Payment (رقم وصول کریں)</h3>
+            <h3 class="modal-title"><i class="ti ti-cash mr-1 text-success"></i> Record Incoming Payment</h3>
             <button type="button" class="modal-close" data-modal-close>&times;</button>
         </div>
         <form action="<?= url('payments.php') ?>" method="POST">
@@ -227,11 +227,11 @@ require YBT_ROOT . '/includes/header.php';
 
                 <div class="grid grid-cols-2 gap-3 mb-3">
                     <div class="form-group">
-                        <label class="form-label required">Payment Method (ادائیگی کا ذریعہ)</label>
+                        <label class="form-label required">Payment Method</label>
                         <select name="method" class="form-select" required>
                             <?php foreach ($paymentMethods as $code => $m): ?>
                                 <option value="<?= e($code) ?>" <?= $code === 'cash' ? 'selected' : '' ?>>
-                                    <?= e($m['label']) ?> (<?= e($m['label_ur']) ?>)
+                                    <?= e($m['label']) ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>

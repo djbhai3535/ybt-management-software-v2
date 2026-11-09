@@ -17,13 +17,14 @@ if (!headers_sent()) {
 $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
 if (!Auth::check() && preg_match('/Bearer\s+(\S+)/i', $authHeader, $matches)) {
     $tokenHash = hash('sha256', $matches[1]);
+    $now = date('Y-m-d H:i:s');
     $tokenRecord = Database::fetch(
         "SELECT t.*, u.name as user_name, u.email as user_email, u.is_owner, u.role_id 
          FROM api_tokens t
          JOIN users u ON t.user_id = u.id
-         WHERE t.token_hash = ? AND t.expires_at > datetime('now') AND u.is_active = 1
+         WHERE t.token_hash = ? AND t.expires_at > ? AND u.is_active = 1
          LIMIT 1",
-        [$tokenHash]
+        [$tokenHash, $now]
     );
     if ($tokenRecord) {
         $_SESSION['user_id'] = (int)$tokenRecord['user_id'];
