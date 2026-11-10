@@ -33,6 +33,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             'ai_enabled' => !empty($_POST['ai_enabled']) ? 1 : 0,
             'ai_monthly_limit' => (int)($_POST['ai_monthly_limit'] ?? 0),
             'offline_sync_enabled' => !empty($_POST['offline_sync_enabled']) ? 1 : 0,
+            'has_ads' => !empty($_POST['has_ads']) ? 1 : 0,
+            'trial_days' => (int)($_POST['trial_days'] ?? 0),
             'is_active' => !empty($_POST['is_active']) ? 1 : 0,
             'features' => $features
         ]);
@@ -44,6 +46,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
         header('Location: ' . url('admin/subscriptions.php#plans'));
         exit;
+    }
+}
+
+// Handle Action: Create New Plan
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_plan') {
+    if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
+        Flash::error('Security token expired. Please refresh.');
+    } else {
+        $name = trim($_POST['name'] ?? '');
+        $slug = trim($_POST['slug'] ?? '');
+        $features = !empty($_POST['features']) ? explode("\n", str_replace("\r", "", $_POST['features'])) : [];
+        $features = array_values(array_filter(array_map('trim', $features)));
+
+        if (empty($name)) {
+            Flash::error('Plan display name is required.');
+        } else {
+            $newId = SubscriptionService::createPlan([
+                'name' => $name,
+                'slug' => $slug,
+                'badge' => trim($_POST['badge'] ?? ''),
+                'description' => trim($_POST['description'] ?? ''),
+                'price_monthly' => (float)($_POST['price_monthly'] ?? 0),
+                'price_annual' => (float)($_POST['price_annual'] ?? 0),
+                'max_users' => (int)($_POST['max_users'] ?? 1),
+                'max_customers' => (int)($_POST['max_customers'] ?? 500),
+                'max_invoices_per_month' => (int)($_POST['max_invoices_per_month'] ?? 100),
+                'ai_enabled' => !empty($_POST['ai_enabled']) ? 1 : 0,
+                'ai_monthly_limit' => (int)($_POST['ai_monthly_limit'] ?? 0),
+                'offline_sync_enabled' => !empty($_POST['offline_sync_enabled']) ? 1 : 0,
+                'has_ads' => !empty($_POST['has_ads']) ? 1 : 0,
+                'trial_days' => (int)($_POST['trial_days'] ?? 0),
+                'is_active' => !empty($_POST['is_active']) ? 1 : 0,
+                'features' => $features
+            ]);
+
+            ActivityLog::log(0, Auth::id(), 'plan_created', 'subscription_plans', $newId, "Super Admin created new plan: {$name}");
+            Flash::success("New subscription tier '{$name}' created successfully.");
+            header('Location: ' . url('admin/subscriptions.php#plans'));
+            exit;
+        }
     }
 }
 
@@ -306,16 +348,20 @@ require __DIR__ . '/header.php';
 
 <!-- SECTION 2: Configurable SaaS Plan Tiers -->
 <div class="card mb-4" id="plans">
-    <div class="card-header d-flex justify-between align-center">
+    <div class="card-header d-flex justify-between align-center flex-wrap gap-2">
         <div>
             <h3 class="card-title text-primary"><i class="ti ti-adjustments mr-2"></i> Configurable SaaS Plan Tiers</h3>
             <p class="text-xs text-muted mb-0">Set monthly/annual pricing, user quotas, invoice limits, and AI feature authorization.</p>
         </div>
+        <button type="button" class="btn btn-primary btn-sm" data-modal-target="create-plan-modal" style="font-weight: 600;">
+            <i class="ti ti-plus mr-1"></i> Add New Plan Tier
+        </button>
     </div>
     <div class="card-body">
         <div class="grid grid-cols-4 gap-3">
             <?php foreach ($plans as $pl): 
                 $feats = !empty($pl['features_json']) ? json_decode($pl['features_json'], true) : [];
+                $subscriberCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM businesses WHERE current_plan_slug = ?", [$pl['slug']]);
             ?>
             <div class="p-3 bg-subtle rounded border d-flex flex-column justify-between" style="position: relative;">
                 <div>
@@ -324,7 +370,10 @@ require __DIR__ . '/header.php';
                         <span class="badge badge-<?= $pl['is_active'] ? 'success' : 'secondary' ?>"><?= $pl['is_active'] ? 'Active' : 'Disabled' ?></span>
                     </div>
                     <h3 class="font-bold fs-5 mb-1"><?= e($pl['name']) ?></h3>
-                    <p class="text-xs text-muted mb-3" style="min-height: 36px;"><?= e($pl['description']) ?></p>
+                    <p class="text-xs text-muted mb-2" style="min-height: 36px;"><?= e($pl['description']) ?></p>
+                    <div class="mb-2 text-xs text-muted">
+                        <i class="ti ti-building-store mr-1 text-warning"></i> <strong><?= $subscriberCount ?></strong> Active Subscribed Shops
+                    </div>
 
                     <div class="mb-3 p-2 bg-surface rounded border">
                         <div class="font-bold text-lg text-primary">Rs. <?= number_format($pl['price_monthly'], 0) ?> <span class="text-xs text-muted">/ month</span></div>
@@ -430,6 +479,19 @@ require __DIR__ . '/header.php';
                                 <textarea name="features" class="form-textarea" rows="4"><?= implode("\n", $feats ?: []) ?></textarea>
                             </div>
 
+                            <div class="grid grid-cols-2 gap-3 mb-3">
+                                <div class="form-group">
+                                    <label class="form-label">Trial Duration (Days)</label>
+                                    <input type="number" min="0" max="365" name="trial_days" class="form-input" value="<?= (int)($pl['trial_days'] ?? 0) ?>" placeholder="0 for permanent/paid">
+                                </div>
+                                <div class="form-group d-flex align-end">
+                                    <label class="d-flex align-center gap-2 cursor-pointer pb-2">
+                                        <input type="checkbox" name="has_ads" value="1" <?= !empty($pl['has_ads']) ? 'checked' : '' ?>>
+                                        <span>Show Platform Ads on this Plan</span>
+                                    </label>
+                                </div>
+                            </div>
+
                             <div class="d-flex gap-4">
                                 <label class="d-flex align-center gap-2 cursor-pointer">
                                     <input type="checkbox" name="offline_sync_enabled" value="1" <?= $pl['offline_sync_enabled'] ? 'checked' : '' ?>>
@@ -453,6 +515,120 @@ require __DIR__ . '/header.php';
             </div>
             <?php endforeach; ?>
         </div>
+    </div>
+</div>
+
+<!-- MODAL: Create New Plan Tier -->
+<div class="modal-backdrop" id="create-plan-modal" style="display: none;">
+    <div class="modal-card" style="max-width: 580px;">
+        <div class="modal-header">
+            <h3 class="modal-title"><i class="ti ti-plus mr-2 text-primary"></i> Create New Plan Tier</h3>
+            <button type="button" class="modal-close" data-modal-close>&times;</button>
+        </div>
+        <form method="POST" action="<?= url('admin/subscriptions.php') ?>">
+            <?= Csrf::field() ?>
+            <input type="hidden" name="action" value="create_plan">
+
+            <div class="modal-body">
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label required">Plan Display Name</label>
+                        <input type="text" name="name" class="form-input" placeholder="e.g. Starter Growth" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Plan Slug (e.g. starter-growth)</label>
+                        <input type="text" name="slug" class="form-input" placeholder="leave blank to auto-generate">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label">Badge Tag (e.g. Popular, Best Value)</label>
+                        <input type="text" name="badge" class="form-input" placeholder="e.g. Recommended">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <input type="text" name="description" class="form-input" placeholder="Brief plan description">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label required">Monthly Price (PKR)</label>
+                        <input type="number" step="1" min="0" name="price_monthly" class="form-input" value="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required">Annual Price (PKR)</label>
+                        <input type="number" step="1" min="0" name="price_annual" class="form-input" value="0" required>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label required">Max Users</label>
+                        <input type="number" min="1" max="500" name="max_users" class="form-input" value="3" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required">Max Customers</label>
+                        <input type="number" min="50" max="100000" name="max_customers" class="form-input" value="1000" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label required">Max Invoices / Mo</label>
+                        <input type="number" min="10" max="100000" name="max_invoices_per_month" class="form-input" value="500" required>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label">AI Digital Manager</label>
+                        <select name="ai_enabled" class="form-select">
+                            <option value="0">Disabled</option>
+                            <option value="1">Enabled</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">AI Requests Limit / Month</label>
+                        <input type="number" min="0" max="10000" name="ai_monthly_limit" class="form-input" value="0">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div class="form-group">
+                        <label class="form-label">Trial Duration (Days)</label>
+                        <input type="number" min="0" max="365" name="trial_days" class="form-input" value="0" placeholder="0 for permanent/paid">
+                    </div>
+                    <div class="form-group d-flex align-end">
+                        <label class="d-flex align-center gap-2 cursor-pointer pb-2">
+                            <input type="checkbox" name="has_ads" value="1">
+                            <span>Show Platform Ads on this Plan</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label class="form-label">Feature Bullet Points (One per line)</label>
+                    <textarea name="features" class="form-textarea" rows="3" placeholder="Desktop offline sync&#10;Customer ledger & Khata&#10;Invoice & thermal billing"></textarea>
+                </div>
+
+                <div class="d-flex gap-4">
+                    <label class="d-flex align-center gap-2 cursor-pointer">
+                        <input type="checkbox" name="offline_sync_enabled" value="1" checked>
+                        <span>Enable Offline Desktop Sync</span>
+                    </label>
+                    <label class="d-flex align-center gap-2 cursor-pointer">
+                        <input type="checkbox" name="is_active" value="1" checked>
+                        <span>Plan is Active for Purchase</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="modal-footer d-flex justify-between align-center">
+                <button type="button" class="btn btn-secondary" data-modal-close>Cancel</button>
+                <button type="submit" class="btn btn-primary font-bold">
+                    <i class="ti ti-check mr-1"></i> Create Plan Tier
+                </button>
+            </div>
+        </form>
     </div>
 </div>
 

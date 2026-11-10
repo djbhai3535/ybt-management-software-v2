@@ -5,6 +5,7 @@
 
 require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/services/report-service.php';
+require_once __DIR__ . '/services/ad-service.php';
 
 Auth::requireLogin();
 Permissions::require('dashboard.view');
@@ -195,6 +196,9 @@ try {
 </div>
 <?php endif; ?>
 
+<!-- Top Dashboard Advertisement Slot -->
+<?= AdService::render('dashboard_top') ?>
+
 <!-- Section: Customer Khata Financial Overview -->
 <div class="mb-4">
     <div class="d-flex justify-between align-center mb-2">
@@ -320,6 +324,9 @@ try {
         </div>
     </div>
 </div>
+
+<!-- Content Advertisement Slot -->
+<?= AdService::render('dashboard_content') ?>
 
 <!-- Charts Section -->
 <div class="grid grid-cols-3 gap-4 mb-4">

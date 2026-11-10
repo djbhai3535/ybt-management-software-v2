@@ -8,6 +8,7 @@
 
 require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/services/mailer-service.php';
+require_once __DIR__ . '/services/subscription-service.php';
 
 if (Auth::check()) {
     header('Location: ' . url('dashboard.php'));
@@ -96,6 +97,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     try {
                         $tenantUuid = generateUuidV4();
 
+                        // Resolve Selected Subscription Plan (Default Trial)
+                        $selectedPlanSlug = trim($_POST['plan'] ?? $_GET['plan'] ?? 'free');
+                        $targetPlan = SubscriptionService::getPlanBySlug($selectedPlanSlug) ?? SubscriptionService::getPlanBySlug('free') ?? SubscriptionService::getPlanById(1);
+                        $assignedSlug = $targetPlan['slug'] ?? 'free';
+                        $assignedPlanId = (int)($targetPlan['id'] ?? 1);
+                        $trialDays = (int)($targetPlan['trial_days'] ?? 30);
+                        if ($trialDays <= 0) $trialDays = 30;
+                        $subExpiresAt = date('Y-m-d H:i:s', strtotime("+{$trialDays} days"));
+
                         // 1. Create Business Tenant (Pending Verification)
                         $businessId = Database::insert('businesses', [
                             'name' => $businessName,
@@ -112,7 +122,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'tenant_uuid' => $tenantUuid,
                             'status' => 'pending_verification',
                             'onboarding_step' => 1,
-                            'is_demo' => 0
+                            'is_demo' => 0,
+                            'current_plan_slug' => $assignedSlug,
+                            'subscription_status' => 'active',
+                            'subscription_expires_at' => $subExpiresAt
+                        ]);
+
+                        // Initial Trial Subscription Record
+                        Database::insert('business_subscriptions', [
+                            'business_id' => $businessId,
+                            'plan_id' => $assignedPlanId,
+                            'billing_cycle' => 'monthly',
+                            'status' => 'active',
+                            'starts_at' => date('Y-m-d H:i:s'),
+                            'expires_at' => $subExpiresAt,
+                            'amount_paid' => 0.00,
+                            'payment_method' => 'trial_auto',
+                            'notes' => 'Automatic trial onboarding plan'
                         ]);
 
                         // 2. Create Roles for Tenant
@@ -527,6 +553,19 @@ body.public-layout {
 
     <form action="<?= url('register.php') ?>" method="POST" id="register-form">
         <?= Csrf::field() ?>
+
+        <?php
+        $incomingPlan = trim($_POST['plan'] ?? $_GET['plan'] ?? 'free');
+        $displayPlan = SubscriptionService::getPlanBySlug($incomingPlan) ?? SubscriptionService::getPlanBySlug('free') ?? ['name' => 'Free Starter Trial', 'max_users' => 3];
+        ?>
+        <input type="hidden" name="plan" value="<?= e($incomingPlan) ?>">
+        <div class="mb-3 p-2 rounded d-flex justify-between align-center" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(148, 163, 184, 0.25);">
+            <div class="d-flex align-center gap-2">
+                <i class="ti ti-crown text-warning" style="font-size: 1.1rem;"></i>
+                <span style="font-size: 0.8rem; color: #cbd5e1;">Selected Plan: <strong style="color: #38bdf8;"><?= e($displayPlan['name']) ?></strong> (<?= (int)($displayPlan['max_users'] ?? 3) ?> Team Seats)</span>
+            </div>
+            <a href="<?= url('pricing.php') ?>" style="font-size: 0.78rem; color: #38bdf8; text-decoration: none; font-weight: 600;">Compare Plans &rarr;</a>
+        </div>
 
         <div class="clean-form-row">
             <div class="clean-form-group">

@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/services/staff-service.php';
+require_once __DIR__ . '/services/subscription-service.php';
 
 Auth::requireLogin();
 Permissions::require('managers.view');
@@ -25,6 +26,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         if (empty($name) || empty($email)) {
             Flash::error('Name and email are required.');
+        } elseif (!SubscriptionService::canAddUser($businessId)) {
+            $subInfo = SubscriptionService::getBusinessPlan($businessId);
+            $u = $subInfo['usage']['users'];
+            $m = $subInfo['usage']['max_users'];
+            Flash::error("You have reached the user limit of your current plan ({$u} / {$m} users). Please upgrade your subscription to add more team members.");
         } else {
             // Check existing
             $existing = Database::fetch("SELECT id FROM users WHERE email = ?", [$email]);
@@ -92,6 +98,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $role = Database::fetch("SELECT slug FROM roles WHERE id = ? AND (business_id = ? OR is_system = 1)", [$roleId, $businessId]);
         if (!$role || $role['slug'] === 'owner') {
             Flash::error('Cannot assign Owner role to invited staff.');
+            header('Location: ' . url('managers.php'));
+            exit;
+        }
+
+        if (!SubscriptionService::canAddUser($businessId)) {
+            $subInfo = SubscriptionService::getBusinessPlan($businessId);
+            $u = $subInfo['usage']['users'];
+            $m = $subInfo['usage']['max_users'];
+            Flash::error("You have reached the user limit of your current plan ({$u} / {$m} users). Please upgrade your subscription to add more team members.");
             header('Location: ' . url('managers.php'));
             exit;
         }
@@ -202,25 +217,59 @@ $assignedPerms = Database::fetchAll("SELECT permission_id FROM role_permissions 
 $activePermIds = array_column($assignedPerms, 'permission_id');
 
 $pageTitle = 'Managers & Role Permissions';
+$subPlan = SubscriptionService::getBusinessPlan($businessId);
+$seatsUsed = (int)$subPlan['usage']['users'];
+$seatsTotal = (int)$subPlan['usage']['max_users'];
+$canAdd = SubscriptionService::canAddUser($businessId);
+
 require YBT_ROOT . '/includes/header.php';
 ?>
 
-<div class="page-header d-flex justify-between align-center mb-4">
+<div class="page-header d-flex justify-between align-center mb-4 flex-wrap gap-2">
     <div>
         <h1 class="page-title">Managers & Team Access</h1>
         <p class="page-subtitle">Configure operator accounts, invite employees, and fine-tune Role-Based Access Control (RBAC)</p>
     </div>
-    <div class="page-header-actions d-flex gap-2">
+    <div class="page-header-actions d-flex align-center gap-2 flex-wrap">
+        <span class="badge <?= $canAdd ? 'badge-primary' : 'badge-danger' ?>" style="font-size: 0.85rem; padding: 0.45rem 0.75rem;">
+            <i class="ti ti-users mr-1"></i> Team Seats: <?= $seatsUsed ?> / <?= $seatsTotal ?> Used
+        </span>
+        <?php if (!$canAdd): ?>
+            <a href="<?= url('subscription.php') ?>" class="btn btn-warning btn-sm font-bold">
+                <i class="ti ti-crown mr-1"></i> Upgrade Plan
+            </a>
+        <?php endif; ?>
         <?php if (Auth::isOwner()): ?>
-        <button type="button" class="btn btn-outline" data-modal-target="invite-staff-modal">
-            <i class="ti ti-mail-forward mr-1"></i> Invite Employee
-        </button>
-        <button type="button" class="btn btn-primary" data-modal-target="add-manager-modal">
-            <i class="ti ti-user-plus mr-1"></i> Add Manager Directly
-        </button>
+            <?php if ($canAdd): ?>
+                <button type="button" class="btn btn-outline" data-modal-target="invite-staff-modal">
+                    <i class="ti ti-mail-forward mr-1"></i> Invite Employee
+                </button>
+                <button type="button" class="btn btn-primary" data-modal-target="add-manager-modal">
+                    <i class="ti ti-user-plus mr-1"></i> Add Manager Directly
+                </button>
+            <?php else: ?>
+                <a href="<?= url('subscription.php') ?>" class="btn btn-outline-danger btn-sm" title="User limit reached">
+                    <i class="ti ti-lock mr-1"></i> Seats Full (Upgrade Plan)
+                </a>
+            <?php endif; ?>
         <?php endif; ?>
     </div>
 </div>
+
+<?php if (!$canAdd): ?>
+<div class="alert alert-warning mb-4 d-flex justify-between align-center p-3 rounded" style="background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px;">
+    <div class="d-flex align-center gap-2">
+        <i class="ti ti-alert-triangle fs-4 text-warning"></i>
+        <div>
+            <strong>Team Seat Limit Reached (<?= $seatsUsed ?> / <?= $seatsTotal ?> Seats Used)</strong>
+            <div class="text-xs text-muted">You have reached the maximum allowed team members for your current <?= e($subPlan['plan_name']) ?> plan. Please upgrade your subscription to add more staff.</div>
+        </div>
+    </div>
+    <a href="<?= url('subscription.php') ?>" class="btn btn-warning btn-sm font-bold">
+        <i class="ti ti-crown mr-1"></i> View Upgrade Plans
+    </a>
+</div>
+<?php endif; ?>
 
 <?php Flash::render(); ?>
 

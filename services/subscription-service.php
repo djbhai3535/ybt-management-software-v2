@@ -442,7 +442,74 @@ class SubscriptionService {
             $update['features_json'] = $features;
         }
 
+        if (isset($data['has_ads'])) {
+            $update['has_ads'] = !empty($data['has_ads']) ? 1 : 0;
+        }
+        if (isset($data['trial_days'])) {
+            $update['trial_days'] = max(0, (int)$data['trial_days']);
+        }
+
         return Database::update('subscription_plans', $update, 'id = ?', [$planId]);
+    }
+
+    /**
+     * Create a new subscription plan (Super Admin only)
+     */
+    public static function createPlan(array $data): int {
+        Database::ensureSchemaCompatibility();
+        $name = trim($data['name'] ?? '');
+        $slug = strtolower(trim((string)preg_replace('/[^a-z0-9_-]/', '', str_replace(' ', '-', $data['slug'] ?? $name))));
+        if (empty($slug)) $slug = 'plan-' . time();
+
+        $features = null;
+        if (isset($data['features']) && is_array($data['features'])) {
+            $features = json_encode(array_values(array_filter(array_map('trim', $data['features']))), JSON_UNESCAPED_SLASHES);
+        }
+
+        return Database::insert('subscription_plans', [
+            'slug' => $slug,
+            'name' => $name,
+            'badge' => trim($data['badge'] ?? ''),
+            'description' => trim($data['description'] ?? ''),
+            'price_monthly' => max(0.0, (float)($data['price_monthly'] ?? 0)),
+            'price_annual' => max(0.0, (float)($data['price_annual'] ?? 0)),
+            'currency' => trim($data['currency'] ?? 'PKR') ?: 'PKR',
+            'max_users' => max(1, (int)($data['max_users'] ?? 1)),
+            'max_customers' => max(50, (int)($data['max_customers'] ?? 500)),
+            'max_invoices_per_month' => max(10, (int)($data['max_invoices_per_month'] ?? 100)),
+            'ai_enabled' => !empty($data['ai_enabled']) ? 1 : 0,
+            'ai_monthly_limit' => max(0, (int)($data['ai_monthly_limit'] ?? 0)),
+            'offline_sync_enabled' => !empty($data['offline_sync_enabled']) ? 1 : 0,
+            'has_ads' => !empty($data['has_ads']) ? 1 : 0,
+            'trial_days' => max(0, (int)($data['trial_days'] ?? 0)),
+            'features_json' => $features ?: '[]',
+            'is_active' => !empty($data['is_active']) ? 1 : 0,
+            'sort_order' => (int)($data['sort_order'] ?? 0)
+        ]);
+    }
+
+    /**
+     * Get active shops subscribed to a plan
+     */
+    public static function getPlanSubscribers(int $planId): array {
+        $plan = self::getPlanById($planId);
+        if (!$plan) return [];
+        
+        $bizCols = Database::getTableColumns('businesses');
+        $sel = ['id', 'name'];
+        foreach (['legal_name', 'phone', 'email', 'city', 'subscription_status', 'subscription_expires_at', 'created_at'] as $col) {
+            if (isset($bizCols[$col])) {
+                $sel[] = "`$col`";
+            }
+        }
+        $colsStr = implode(', ', $sel);
+        return Database::fetchAll(
+            "SELECT {$colsStr} 
+             FROM businesses 
+             WHERE current_plan_slug = ? 
+             ORDER BY id DESC",
+            [$plan['slug']]
+        );
     }
 
     /**

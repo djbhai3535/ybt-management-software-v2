@@ -70,7 +70,6 @@ define('APP_DEBUG', $config['debug']);
 if (!defined('CLOUD_SYNC_URL')) {
     define('CLOUD_SYNC_URL', rtrim($config['cloud_sync_url'] ?? (getenv('CLOUD_SYNC_URL') ?: 'https://apkashow.com'), '/'));
 }
-define('WHATSAPP_SUPPORT_NUMBER', class_exists('PlatformSettings') ? PlatformSettings::getWhatsAppSupport() : ($config['whatsapp_support'] ?? '923000000000'));
 
 // Error reporting
 if ($config['debug']) {
@@ -129,6 +128,11 @@ require_once YBT_ROOT . '/includes/auth.php';
 require_once YBT_ROOT . '/includes/permissions.php';
 require_once YBT_ROOT . '/services/platform-settings-service.php';
 require_once YBT_ROOT . '/services/subscription-service.php';
+
+// Global WhatsApp Support Number (resolved dynamically from platform_settings table)
+if (!defined('WHATSAPP_SUPPORT_NUMBER')) {
+    define('WHATSAPP_SUPPORT_NUMBER', PlatformSettings::getWhatsAppSupport());
+}
 
 // Auto-bind TenantContext if user session is active
 if (!empty($_SESSION['business_id']) && (int)$_SESSION['business_id'] > 0) {

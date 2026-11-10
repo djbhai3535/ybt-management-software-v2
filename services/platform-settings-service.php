@@ -74,8 +74,9 @@ class PlatformSettings {
      */
     public static function getWhatsAppSupport(): string {
         $stored = self::get('whatsapp_support_number');
-        if (!empty($stored)) return $stored;
-        return getenv('WHATSAPP_SUPPORT_NUMBER') ?: '923000000000';
+        $raw = !empty($stored) ? $stored : (getenv('WHATSAPP_SUPPORT_NUMBER') ?: '923000000000');
+        $clean = preg_replace('/[^0-9]/', '', (string)$raw);
+        return !empty($clean) ? $clean : '923000000000';
     }
 
     /**

@@ -112,13 +112,36 @@ class Database {
             }
 
             // 5. Ensure advertisements table exists
-            if (!$isSqlite) {
+            if ($isSqlite) {
+                self::query("CREATE TABLE IF NOT EXISTS `advertisements` (
+                  `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+                  `title` TEXT NOT NULL,
+                  `company_name` TEXT DEFAULT NULL,
+                  `placement` TEXT NOT NULL DEFAULT 'dashboard_top',
+                  `image_url` TEXT DEFAULT NULL,
+                  `target_url` TEXT DEFAULT NULL,
+                  `ad_code` TEXT DEFAULT NULL,
+                  `target_plans` TEXT DEFAULT 'all',
+                  `priority` INTEGER DEFAULT 0,
+                  `start_date` TEXT DEFAULT NULL,
+                  `end_date` TEXT DEFAULT NULL,
+                  `is_active` INTEGER DEFAULT 1,
+                  `impressions_count` INTEGER DEFAULT 0,
+                  `clicks_count` INTEGER DEFAULT 0,
+                  `created_at` TEXT DEFAULT CURRENT_TIMESTAMP,
+                  `updated_at` TEXT DEFAULT CURRENT_TIMESTAMP
+                )");
+            } else {
                 self::query("CREATE TABLE IF NOT EXISTS `advertisements` (
                   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                   `title` VARCHAR(255) NOT NULL,
-                  `placement` ENUM('dashboard_top', 'sidebar_bottom', 'login_banner') NOT NULL DEFAULT 'dashboard_top',
+                  `company_name` VARCHAR(255) DEFAULT NULL,
+                  `placement` VARCHAR(50) NOT NULL DEFAULT 'dashboard_top',
                   `image_url` VARCHAR(500) DEFAULT NULL,
                   `target_url` VARCHAR(500) DEFAULT NULL,
+                  `ad_code` TEXT DEFAULT NULL,
+                  `target_plans` VARCHAR(255) DEFAULT 'all',
+                  `priority` INT UNSIGNED DEFAULT 0,
                   `start_date` DATE DEFAULT NULL,
                   `end_date` DATE DEFAULT NULL,
                   `is_active` TINYINT(1) DEFAULT 1,
@@ -128,6 +151,24 @@ class Database {
                   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                   INDEX `idx_ads_placement_active` (`placement`, `is_active`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+                // Ensure columns in existing advertisements table
+                $adCols = self::getTableColumns('advertisements');
+                if (!empty($adCols)) {
+                    if (!isset($adCols['company_name'])) {
+                        self::query("ALTER TABLE `advertisements` ADD COLUMN `company_name` VARCHAR(255) DEFAULT NULL AFTER `title`");
+                    }
+                    if (!isset($adCols['ad_code'])) {
+                        self::query("ALTER TABLE `advertisements` ADD COLUMN `ad_code` TEXT DEFAULT NULL AFTER `target_url`");
+                    }
+                    if (!isset($adCols['target_plans'])) {
+                        self::query("ALTER TABLE `advertisements` ADD COLUMN `target_plans` VARCHAR(255) DEFAULT 'all' AFTER `ad_code`");
+                    }
+                    if (!isset($adCols['priority'])) {
+                        self::query("ALTER TABLE `advertisements` ADD COLUMN `priority` INT UNSIGNED DEFAULT 0 AFTER `target_plans`");
+                    }
+                    self::clearColumnCache('advertisements');
+                }
 
                 self::query("CREATE TABLE IF NOT EXISTS `subscription_plans` (
                   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -144,6 +185,8 @@ class Database {
                   `ai_enabled` TINYINT(1) DEFAULT 0,
                   `ai_monthly_limit` INT UNSIGNED DEFAULT 0,
                   `offline_sync_enabled` TINYINT(1) DEFAULT 1,
+                  `has_ads` TINYINT(1) DEFAULT 0,
+                  `trial_days` INT UNSIGNED DEFAULT 0,
                   `features_json` TEXT DEFAULT NULL,
                   `is_active` TINYINT(1) DEFAULT 1,
                   `sort_order` INT UNSIGNED DEFAULT 0,
@@ -152,6 +195,18 @@ class Database {
                   INDEX `idx_plans_slug` (`slug`),
                   INDEX `idx_plans_active` (`is_active`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+                // Ensure columns in subscription_plans
+                $spCols = self::getTableColumns('subscription_plans');
+                if (!empty($spCols)) {
+                    if (!isset($spCols['has_ads'])) {
+                        self::query("ALTER TABLE `subscription_plans` ADD COLUMN `has_ads` TINYINT(1) DEFAULT 0 AFTER `offline_sync_enabled`");
+                    }
+                    if (!isset($spCols['trial_days'])) {
+                        self::query("ALTER TABLE `subscription_plans` ADD COLUMN `trial_days` INT UNSIGNED DEFAULT 0 AFTER `has_ads`");
+                    }
+                    self::clearColumnCache('subscription_plans');
+                }
 
                 self::query("CREATE TABLE IF NOT EXISTS `business_subscriptions` (
                   `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
