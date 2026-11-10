@@ -167,6 +167,9 @@ class Database {
                     if (!isset($adCols['priority'])) {
                         self::query("ALTER TABLE `advertisements` ADD COLUMN `priority` INT UNSIGNED DEFAULT 0 AFTER `target_plans`");
                     }
+                    try {
+                        self::query("ALTER TABLE `advertisements` MODIFY COLUMN `placement` VARCHAR(50) NOT NULL DEFAULT 'dashboard_top'");
+                    } catch (\Throwable $e) {}
                     self::clearColumnCache('advertisements');
                 }
 
@@ -206,6 +209,13 @@ class Database {
                         self::query("ALTER TABLE `subscription_plans` ADD COLUMN `trial_days` INT UNSIGNED DEFAULT 0 AFTER `has_ads`");
                     }
                     self::clearColumnCache('subscription_plans');
+                }
+
+                // Ensure platform_settings.is_secret exists
+                $psCols = self::getTableColumns('platform_settings');
+                if (!empty($psCols) && !isset($psCols['is_secret'])) {
+                    self::query("ALTER TABLE `platform_settings` ADD COLUMN `is_secret` TINYINT(1) NOT NULL DEFAULT 0 AFTER `description`");
+                    self::clearColumnCache('platform_settings');
                 }
 
                 self::query("CREATE TABLE IF NOT EXISTS `business_subscriptions` (

@@ -38,21 +38,27 @@ class PlatformSettings {
         self::$cache[$key] = $value;
         $now = date('Y-m-d H:i:s');
 
+        $cols = Database::getTableColumns('platform_settings');
+        $hasSecretCol = isset($cols['is_secret']);
+
         $exists = Database::fetchColumn("SELECT COUNT(*) FROM `platform_settings` WHERE `key` = ?", [$key]);
         if ($exists) {
             $update = ['value' => $value, 'updated_at' => $now];
             if ($description !== null) $update['description'] = $description;
-            if ($isSecret) $update['is_secret'] = 1;
+            if ($hasSecretCol && $isSecret) $update['is_secret'] = 1;
             Database::update('platform_settings', $update, '`key` = ?', [$key]);
             return true;
         } else {
-            Database::insert('platform_settings', [
+            $insert = [
                 'key' => $key,
                 'value' => $value,
                 'description' => $description ?? $key,
-                'is_secret' => $isSecret ? 1 : 0,
                 'updated_at' => $now
-            ]);
+            ];
+            if ($hasSecretCol) {
+                $insert['is_secret'] = $isSecret ? 1 : 0;
+            }
+            Database::insert('platform_settings', $insert);
             return true;
         }
     }
