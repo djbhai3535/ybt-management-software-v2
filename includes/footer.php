@@ -11,6 +11,12 @@ $isPublicPage = $isPublicPage ?? false;
             </div><!-- /.content-container -->
         </main><!-- /.main-content -->
 
+        <?php if (class_exists('AdService')): ?>
+            <div class="px-4">
+                <?= AdService::render('footer') ?>
+            </div>
+        <?php endif; ?>
+
         <footer class="app-footer">
             <div class="footer-left">
                 <span>&copy; <?= date('Y') ?> <strong><?= e(APP_NAME) ?></strong>. All rights reserved.</span>

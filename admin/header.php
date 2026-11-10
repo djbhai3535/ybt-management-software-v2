@@ -279,15 +279,23 @@ $activeAdsCount = (int)Database::fetchColumn("SELECT COUNT(*) FROM advertisement
     </script>
 
     <main class="admin-container">
-        <?php if ($flash = Flash::get('success')): ?>
-            <div class="alert alert-success mb-3 d-flex align-center gap-2" style="border-radius: 8px;">
-                <i class="ti ti-circle-check fs-5"></i>
-                <span><?= e($flash) ?></span>
+        <?php foreach (Flash::get() as $msg): ?>
+            <?php
+            $alertClass = match($msg['type'] ?? 'info') {
+                'success' => 'alert-success',
+                'error', 'danger' => 'alert-danger',
+                'warning' => 'alert-warning',
+                default => 'alert-info'
+            };
+            $iconClass = match($msg['type'] ?? 'info') {
+                'success' => 'ti-circle-check',
+                'error', 'danger' => 'ti-alert-circle',
+                'warning' => 'ti-alert-triangle',
+                default => 'ti-info-circle'
+            };
+            ?>
+            <div class="alert <?= $alertClass ?> mb-3 d-flex align-center gap-2" style="border-radius: 8px;">
+                <i class="ti <?= $iconClass ?> fs-5"></i>
+                <span><?= e((string)($msg['message'] ?? '')) ?></span>
             </div>
-        <?php endif; ?>
-        <?php if ($flash = Flash::get('error')): ?>
-            <div class="alert alert-danger mb-3 d-flex align-center gap-2" style="border-radius: 8px;">
-                <i class="ti ti-alert-circle fs-5"></i>
-                <span><?= e($flash) ?></span>
-            </div>
-        <?php endif; ?>
+        <?php endforeach; ?>

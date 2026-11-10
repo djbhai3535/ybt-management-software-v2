@@ -24,10 +24,29 @@ class Flash {
         self::set('info', $message);
     }
 
-    public static function get(): array {
+    public static function get(?string $type = null): array {
         $messages = $_SESSION['_flash'] ?? [];
-        unset($_SESSION['_flash']);
-        return $messages;
+        if ($type === null) {
+            unset($_SESSION['_flash']);
+            return $messages;
+        }
+        $filtered = [];
+        $remaining = [];
+        foreach ($messages as $m) {
+            if (($m['type'] ?? '') === $type) {
+                $filtered[] = $m;
+            } else {
+                $remaining[] = $m;
+            }
+        }
+        $_SESSION['_flash'] = $remaining;
+        return $filtered;
+    }
+
+    public static function getMessage(?string $type = null): ?string {
+        $items = self::get($type);
+        if (empty($items)) return null;
+        return $items[0]['message'] ?? null;
     }
 
     public static function has(): bool {

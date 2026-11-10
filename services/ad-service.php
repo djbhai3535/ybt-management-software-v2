@@ -180,19 +180,20 @@ class AdService {
      */
     public static function update(int $id, array $data): bool {
         Database::ensureSchemaCompatibility();
-        $fields = [
-            'title' => trim($data['title'] ?? ''),
-            'company_name' => trim($data['company_name'] ?? '') ?: null,
-            'placement' => trim($data['placement'] ?? 'dashboard_top'),
-            'image_url' => trim($data['image_url'] ?? '') ?: null,
-            'target_url' => trim($data['target_url'] ?? '') ?: null,
-            'ad_code' => !empty($data['ad_code']) ? trim($data['ad_code']) : null,
-            'target_plans' => trim($data['target_plans'] ?? 'all') ?: 'all',
-            'priority' => (int)($data['priority'] ?? 0),
-            'start_date' => !empty($data['start_date']) ? $data['start_date'] : null,
-            'end_date' => !empty($data['end_date']) ? $data['end_date'] : null,
-            'is_active' => !empty($data['is_active']) ? 1 : 0
-        ];
+        $fields = [];
+        if (isset($data['title'])) $fields['title'] = trim((string)$data['title']);
+        if (array_key_exists('company_name', $data)) $fields['company_name'] = trim((string)$data['company_name']) ?: null;
+        if (isset($data['placement'])) $fields['placement'] = trim((string)$data['placement']);
+        if (array_key_exists('image_url', $data)) $fields['image_url'] = trim((string)$data['image_url']) ?: null;
+        if (array_key_exists('target_url', $data)) $fields['target_url'] = trim((string)$data['target_url']) ?: null;
+        if (array_key_exists('ad_code', $data)) $fields['ad_code'] = !empty($data['ad_code']) ? trim((string)$data['ad_code']) : null;
+        if (isset($data['target_plans'])) $fields['target_plans'] = trim((string)$data['target_plans']) ?: 'all';
+        if (isset($data['priority'])) $fields['priority'] = (int)$data['priority'];
+        if (array_key_exists('start_date', $data)) $fields['start_date'] = !empty($data['start_date']) ? $data['start_date'] : null;
+        if (array_key_exists('end_date', $data)) $fields['end_date'] = !empty($data['end_date']) ? $data['end_date'] : null;
+        if (isset($data['is_active'])) $fields['is_active'] = !empty($data['is_active']) ? 1 : 0;
+
+        if (empty($fields)) return true;
         return (bool)Database::update('advertisements', $fields, 'id = ?', [$id]);
     }
 

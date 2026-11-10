@@ -221,9 +221,21 @@ require __DIR__ . '/header.php';
                         <label class="form-label required">WhatsApp Support Hotline Number</label>
                         <div class="input-prefix-wrapper">
                             <span class="input-prefix">+</span>
-                            <input type="text" name="whatsapp_support_number" class="form-input font-mono" value="<?= e($whatsappNumber) ?>" placeholder="923000000000" required>
+                            <input type="text" name="whatsapp_support_number" id="whatsapp_support_input" class="form-input font-mono" value="<?= e($whatsappNumber) ?>" placeholder="923000000000" required>
                         </div>
                         <div class="text-xs text-muted mt-1">Include country calling code without '+' or spaces (e.g. <code>923001234567</code> for Pakistan).</div>
+                        <?php 
+                        $cleanWaTest = preg_replace('/[^0-9]/', '', (string)$whatsappNumber);
+                        $waTestUrl = "https://wa.me/{$cleanWaTest}?text=" . urlencode("Hello DJ CRM Support, testing live platform hotline.");
+                        ?>
+                        <div class="mt-2 d-flex align-center gap-2 flex-wrap">
+                            <a href="<?= e($waTestUrl) ?>" target="_blank" rel="noopener noreferrer" class="btn btn-outline-success btn-xs font-bold" id="btn-test-wa-link">
+                                <i class="ti ti-brand-whatsapp mr-1"></i> Test WhatsApp Chat (wa.me/<?= e($cleanWaTest) ?>)
+                            </a>
+                            <a href="<?= url('admin/whatsapp-support.php') ?>" class="btn btn-outline btn-xs">
+                                <i class="ti ti-external-link mr-1"></i> Dedicated WhatsApp Manager &rarr;
+                            </a>
+                        </div>
                     </div>
 
                     <div class="form-group">

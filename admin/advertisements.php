@@ -1,6 +1,7 @@
 <?php
 /**
  * DJ CRM Software 5.2.2 — Super Admin Central Advertisements & Monetization Engine
+ * Safe, multi-tenant advertisement management, HTML/JS code embedding, and impression tracking.
  */
 
 require_once __DIR__ . '/../includes/bootstrap.php';
@@ -15,7 +16,7 @@ $pageTitle = 'Advertisements & Monetization';
 // Handle POST actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!Csrf::validate($_POST['_csrf_token'] ?? '')) {
-        Flash::error('Security token expired. Please refresh.');
+        Flash::error('Security token expired. Please refresh and try again.');
     } else {
         $action = $_POST['action'] ?? '';
 
@@ -27,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $targetUrl = trim($_POST['target_url'] ?? '');
             $adCode = trim($_POST['ad_code'] ?? '');
             $targetPlans = trim($_POST['target_plans'] ?? 'all');
-            $priority = (int)($_POST['priority'] ?? 0);
+            $priority = max(0, (int)($_POST['priority'] ?? 0));
             $startDate = !empty($_POST['start_date']) ? $_POST['start_date'] : date('Y-m-d');
             $endDate = !empty($_POST['end_date']) ? $_POST['end_date'] : null;
             $isActive = !empty($_POST['is_active']) ? 1 : 0;
@@ -63,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $targetUrl = trim($_POST['target_url'] ?? '');
             $adCode = trim($_POST['ad_code'] ?? '');
             $targetPlans = trim($_POST['target_plans'] ?? 'all');
-            $priority = (int)($_POST['priority'] ?? 0);
+            $priority = max(0, (int)($_POST['priority'] ?? 0));
             $startDate = !empty($_POST['start_date']) ? $_POST['start_date'] : null;
             $endDate = !empty($_POST['end_date']) ? $_POST['end_date'] : null;
             $isActive = !empty($_POST['is_active']) ? 1 : 0;
@@ -138,8 +139,8 @@ require __DIR__ . '/header.php';
         </p>
     </div>
     <div>
-        <button type="button" class="btn btn-primary btn-sm" onclick="openCreateModal()" style="font-weight: 600;">
-            <i class="ti ti-plus mr-1"></i> New Advertisement Campaign
+        <button type="button" class="btn btn-primary btn-sm" id="btn-new-ad" data-modal-target="ad-modal" onclick="openCreateModal()" style="font-weight: 600;">
+            <i class="ti ti-plus mr-1"></i> New Advertisement
         </button>
     </div>
 </div>
@@ -218,7 +219,7 @@ require __DIR__ . '/header.php';
                     <tr>
                         <td colspan="8" class="text-center py-4 text-muted">
                             <i class="ti ti-ad-off fs-3 d-block mb-2"></i>
-                            No advertisements configured yet. Click "New Advertisement Campaign" to create one.
+                            No advertisements configured yet. Click "New Advertisement" to create one.
                         </td>
                     </tr>
                     <?php else: ?>
@@ -274,10 +275,10 @@ require __DIR__ . '/header.php';
                             </td>
                             <td class="text-right">
                                 <div class="d-inline-flex gap-1">
-                                    <button type="button" class="btn btn-secondary btn-xs" onclick='previewAd(<?= json_encode($ad) ?>)' title="Preview Ad">
+                                    <button type="button" class="btn btn-secondary btn-xs" onclick="previewAd(<?= (int)$ad['id'] ?>)" title="Preview Ad">
                                         <i class="ti ti-eye"></i>
                                     </button>
-                                    <button type="button" class="btn btn-secondary btn-xs" onclick='editAd(<?= json_encode($ad) ?>)' title="Edit Campaign">
+                                    <button type="button" class="btn btn-secondary btn-xs" onclick="editAd(<?= (int)$ad['id'] ?>)" title="Edit Campaign">
                                         <i class="ti ti-pencil"></i>
                                     </button>
                                     <form method="POST" action="<?= url('admin/advertisements.php') ?>" style="display: inline;" onsubmit="return confirm('Are you sure you want to permanently delete this advertisement campaign?');">
@@ -304,9 +305,9 @@ require __DIR__ . '/header.php';
     <div class="modal-card" style="background: #1e293b; border: 1px solid #334155; border-radius: 12px; width: 100%; max-width: 650px; max-height: 90vh; overflow-y: auto; padding: 1.5rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
         <div class="d-flex justify-between align-center mb-3 pb-2" style="border-bottom: 1px solid #334155;">
             <h3 class="modal-title" id="modal-title" style="margin: 0; font-size: 1.2rem; font-weight: 700; color: #f8fafc;">
-                <i class="ti ti-ad mr-2 text-warning"></i> Create Advertisement Campaign
+                <i class="ti ti-ad mr-2 text-warning"></i> Create Advertisement
             </h3>
-            <button type="button" class="btn btn-ghost btn-sm" onclick="closeAdModal()">&times;</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-modal-close onclick="closeAdModal()">&times;</button>
         </div>
         <form method="POST" action="<?= url('admin/advertisements.php') ?>" id="ad-form">
             <?= Csrf::field() ?>
@@ -315,7 +316,7 @@ require __DIR__ . '/header.php';
 
             <div class="grid grid-cols-2 gap-3 mb-3">
                 <div class="form-group">
-                    <label class="form-label required">Campaign Title</label>
+                    <label class="form-label required">Campaign Title / Name</label>
                     <input type="text" name="title" id="title" class="form-input" placeholder="e.g. Mobile Spare Parts Mega Sale" required>
                 </div>
                 <div class="form-group">
@@ -328,11 +329,10 @@ require __DIR__ . '/header.php';
                 <div class="form-group">
                     <label class="form-label required">Placement Slot</label>
                     <select name="placement" id="placement" class="form-input" required>
-                        <option value="dashboard_top">Dashboard Top Banner</option>
-                        <option value="dashboard_content">Dashboard Content Section</option>
-                        <option value="sidebar_bottom">Sidebar Bottom Box</option>
-                        <option value="footer">Footer Banner</option>
-                        <option value="login_banner">Login Page Banner</option>
+                        <option value="dashboard_top">Dashboard Top Banner (dashboard_top)</option>
+                        <option value="dashboard_content">Dashboard Content Section (dashboard_content)</option>
+                        <option value="footer">Footer Banner (footer)</option>
+                        <option value="sidebar_bottom">Sidebar Bottom Box (sidebar_bottom)</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -367,7 +367,7 @@ require __DIR__ . '/header.php';
                         <input type="url" name="image_url" id="image_url" class="form-input font-mono" placeholder="https://example.com/banner.png">
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Target Destination URL</label>
+                        <label class="form-label">Destination URL</label>
                         <input type="url" name="target_url" id="target_url" class="form-input font-mono" placeholder="https://advertiser-website.com">
                     </div>
                 </div>
@@ -376,8 +376,8 @@ require __DIR__ . '/header.php';
                 <div id="fields-code" style="display: none;">
                     <div class="form-group">
                         <label class="form-label">HTML / JavaScript Snippet</label>
-                        <textarea name="ad_code" id="ad_code" class="form-input font-mono text-xs" rows="4" placeholder="<script ...> or <ins ...> code from ad provider"></textarea>
-                        <div class="text-xs text-muted mt-1">Super Admin authorized code only. Scripts are sandboxed in designated ad slots.</div>
+                        <textarea name="ad_code" id="ad_code" class="form-input font-mono text-xs" rows="5" placeholder="Paste trusted ad network code (e.g. Google AdSense, ad network tag, custom HTML/JS banner)"></textarea>
+                        <div class="text-xs text-muted mt-1">Super Admin trusted code only. Third-party scripts are executed only within designated frontend ad slots.</div>
                     </div>
                 </div>
             </div>
@@ -405,7 +405,7 @@ require __DIR__ . '/header.php';
             </div>
 
             <div class="d-flex justify-end gap-2 pt-3" style="border-top: 1px solid #334155;">
-                <button type="button" class="btn btn-secondary" onclick="closeAdModal()">Cancel</button>
+                <button type="button" class="btn btn-secondary" data-modal-close onclick="closeAdModal()">Cancel</button>
                 <button type="submit" class="btn btn-success" style="font-weight: 700;">
                     <i class="ti ti-check mr-1"></i> Save Advertisement
                 </button>
@@ -421,18 +421,30 @@ require __DIR__ . '/header.php';
             <h3 class="modal-title" style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #f8fafc;">
                 <i class="ti ti-eye mr-2 text-primary"></i> Campaign Preview
             </h3>
-            <button type="button" class="btn btn-ghost btn-sm" onclick="closePreviewModal()">&times;</button>
+            <button type="button" class="btn btn-ghost btn-sm" data-modal-close onclick="closePreviewModal()">&times;</button>
         </div>
         <div id="preview-render-box" style="padding: 1rem; background: #0f172a; border-radius: 8px; border: 1px dashed #334155; text-align: center; margin-bottom: 1rem;">
             <!-- Dynamic preview content -->
         </div>
         <div class="d-flex justify-end">
-            <button type="button" class="btn btn-secondary" onclick="closePreviewModal()">Close Preview</button>
+            <button type="button" class="btn btn-secondary" data-modal-close onclick="closePreviewModal()">Close Preview</button>
         </div>
     </div>
 </div>
 
+<!-- Embedded JSON Payload for Safe Client-Side Lookup (Zero Quoting Issues) -->
+<script id="ads-data-payload" type="application/json">
+<?= json_encode($ads, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>
+</script>
+
 <script>
+const adsPayloadEl = document.getElementById('ads-data-payload');
+const allAds = adsPayloadEl ? JSON.parse(adsPayloadEl.textContent || '[]') : [];
+
+function getAdById(id) {
+    return allAds.find(function(a) { return parseInt(a.id, 10) === parseInt(id, 10); }) || null;
+}
+
 function toggleAdMode() {
     const isCode = document.getElementById('mode-code').checked;
     document.getElementById('fields-banner').style.display = isCode ? 'none' : 'block';
@@ -440,19 +452,28 @@ function toggleAdMode() {
 }
 
 function openCreateModal() {
+    var modal = document.getElementById('ad-modal');
+    if (!modal) return;
     document.getElementById('form-action').value = 'create_ad';
-    document.getElementById('modal-title').innerHTML = '<i class="ti ti-ad mr-2 text-warning"></i> Create Advertisement Campaign';
+    document.getElementById('modal-title').innerHTML = '<i class="ti ti-ad mr-2 text-warning"></i> Create Advertisement';
     document.getElementById('ad-form').reset();
     document.getElementById('ad_id').value = '0';
     document.getElementById('mode-banner').checked = true;
     document.getElementById('is_active').checked = true;
     toggleAdMode();
-    document.getElementById('ad-modal').style.display = 'flex';
+    modal.classList.add('active');
+    modal.style.display = 'flex';
 }
 
-function editAd(ad) {
+function editAd(idOrAd) {
+    const ad = (typeof idOrAd === 'object' && idOrAd !== null) ? idOrAd : getAdById(idOrAd);
+    if (!ad) return;
+
+    var modal = document.getElementById('ad-modal');
+    if (!modal) return;
+
     document.getElementById('form-action').value = 'update_ad';
-    document.getElementById('modal-title').innerHTML = '<i class="ti ti-pencil mr-2 text-warning"></i> Edit Advertisement Campaign #' + ad.id;
+    document.getElementById('modal-title').innerHTML = '<i class="ti ti-pencil mr-2 text-warning"></i> Edit Advertisement #' + ad.id;
     document.getElementById('ad_id').value = ad.id;
     document.getElementById('title').value = ad.title || '';
     document.getElementById('company_name').value = ad.company_name || '';
@@ -464,7 +485,7 @@ function editAd(ad) {
     document.getElementById('priority').value = ad.priority || 0;
     document.getElementById('start_date').value = ad.start_date || '';
     document.getElementById('end_date').value = ad.end_date || '';
-    document.getElementById('is_active').checked = (parseInt(ad.is_active) === 1);
+    document.getElementById('is_active').checked = (parseInt(ad.is_active, 10) === 1);
 
     if (ad.ad_code && ad.ad_code.trim() !== '') {
         document.getElementById('mode-code').checked = true;
@@ -472,14 +493,22 @@ function editAd(ad) {
         document.getElementById('mode-banner').checked = true;
     }
     toggleAdMode();
-    document.getElementById('ad-modal').style.display = 'flex';
+    modal.classList.add('active');
+    modal.style.display = 'flex';
 }
 
 function closeAdModal() {
-    document.getElementById('ad-modal').style.display = 'none';
+    var modal = document.getElementById('ad-modal');
+    if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+    }
 }
 
-function previewAd(ad) {
+function previewAd(idOrAd) {
+    const ad = (typeof idOrAd === 'object' && idOrAd !== null) ? idOrAd : getAdById(idOrAd);
+    if (!ad) return;
+
     const box = document.getElementById('preview-render-box');
     box.innerHTML = '';
 
@@ -487,16 +516,72 @@ function previewAd(ad) {
         box.innerHTML = '<div style="font-size:10px;color:#f59e0b;font-weight:bold;margin-bottom:6px;text-transform:uppercase;">Custom Script Code Ad Preview</div>' + ad.ad_code;
     } else if (ad.image_url) {
         box.innerHTML = '<div style="font-size:10px;color:#f59e0b;font-weight:bold;margin-bottom:6px;text-transform:uppercase;">Banner Preview (' + (ad.company_name || 'Sponsored') + ')</div>' +
-                        '<a href="' + (ad.target_url || '#') + '" target="_blank" style="display:inline-block;"><img src="' + ad.image_url + '" style="max-width:100%;border-radius:6px;" alt="' + ad.title + '"></a>';
+                        '<a href="' + (ad.target_url || '#') + '" target="_blank" rel="noopener noreferrer" style="display:inline-block;"><img src="' + ad.image_url + '" style="max-width:100%;border-radius:6px;" alt="' + (ad.title || '') + '"></a>';
     } else {
-        box.innerHTML = '<div class="text-muted">Text-only Ad: <strong>' + ad.title + '</strong></div>';
+        box.innerHTML = '<div class="text-muted">Text-only Ad: <strong>' + (ad.title || '') + '</strong></div>';
     }
-    document.getElementById('preview-modal').style.display = 'flex';
+
+    var prevModal = document.getElementById('preview-modal');
+    if (prevModal) {
+        prevModal.classList.add('active');
+        prevModal.style.display = 'flex';
+    }
 }
 
 function closePreviewModal() {
-    document.getElementById('preview-modal').style.display = 'none';
+    var prevModal = document.getElementById('preview-modal');
+    if (prevModal) {
+        prevModal.classList.remove('active');
+        prevModal.style.display = 'none';
+    }
 }
+
+// Bind DOM event handlers
+document.addEventListener('DOMContentLoaded', function() {
+    var newAdBtn = document.getElementById('btn-new-ad');
+    if (newAdBtn) {
+        newAdBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            openCreateModal();
+        });
+    }
+
+    document.querySelectorAll('[data-modal-target="ad-modal"]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            openCreateModal();
+        });
+    });
+
+    document.querySelectorAll('[data-modal-close]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            closeAdModal();
+            closePreviewModal();
+        });
+    });
+
+    var adModal = document.getElementById('ad-modal');
+    if (adModal) {
+        adModal.addEventListener('click', function(e) {
+            if (e.target === adModal) closeAdModal();
+        });
+    }
+
+    var prevModal = document.getElementById('preview-modal');
+    if (prevModal) {
+        prevModal.addEventListener('click', function(e) {
+            if (e.target === prevModal) closePreviewModal();
+        });
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            closeAdModal();
+            closePreviewModal();
+        }
+    });
+});
 </script>
 
 <?php require __DIR__ . '/footer.php'; ?>
