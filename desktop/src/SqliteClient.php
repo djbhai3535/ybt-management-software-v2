@@ -204,6 +204,7 @@ class SqliteClient {
             // 4. Ensure demo users exist in `users` table for staff/manager queries
             $usersTableExists = $this->fetchColumn("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='users'");
             if ($usersTableExists) {
+                $demoPassHash = password_hash('password', PASSWORD_BCRYPT);
                 $ownerUser = $this->fetch("SELECT id FROM `users` WHERE `email` = 'owner@ybt.com'");
                 if (!$ownerUser) {
                     $this->insert('users', [
@@ -213,12 +214,14 @@ class SqliteClient {
                         'name' => 'Vikram Malhotra',
                         'email' => 'owner@ybt.com',
                         'phone' => '+91 98201 12345',
-                        'password' => '$2y$10$v9bn2FQbgixG4ardHYPxZ.i6Q5YCn6XI1wGKaKYKbwa/zZycfFPs6',
+                        'password' => $demoPassHash,
                         'is_owner' => 1,
                         'is_active' => 1,
                         'verification_status' => 'verified',
                         'onboarding_completed' => 1
                     ]);
+                } else {
+                    $this->update('users', ['password' => $demoPassHash], 'id = ?', [$ownerUser['id']]);
                 }
 
                 $mgrUser = $this->fetch("SELECT id FROM `users` WHERE `email` = 'manager@ybt.com'");
@@ -230,12 +233,14 @@ class SqliteClient {
                         'name' => 'Rohan Verma',
                         'email' => 'manager@ybt.com',
                         'phone' => '+91 98202 54321',
-                        'password' => '$2y$10$v9bn2FQbgixG4ardHYPxZ.i6Q5YCn6XI1wGKaKYKbwa/zZycfFPs6',
+                        'password' => $demoPassHash,
                         'is_owner' => 0,
                         'is_active' => 1,
                         'verification_status' => 'verified',
                         'onboarding_completed' => 1
                     ]);
+                } else {
+                    $this->update('users', ['password' => $demoPassHash], 'id = ?', [$mgrUser['id']]);
                 }
 
                 // 5. Seed Platform Super Admin account if not exists

@@ -395,6 +395,18 @@ class Database {
                 $data['uuid'] = $data['sync_uuid'];
             }
         } elseif ($cleanTable === 'expenses') {
+            if (!isset($data['category'])) {
+                if (isset($data['category_id']) && is_numeric($data['category_id'])) {
+                    try {
+                        $catName = self::fetchColumn("SELECT name FROM expense_categories WHERE id = ?", [$data['category_id']]);
+                        $data['category'] = $catName ?: 'General';
+                    } catch (\Throwable $e) {
+                        $data['category'] = 'General';
+                    }
+                } else {
+                    $data['category'] = 'General';
+                }
+            }
             if (isset($data['method']) && !isset($data['payment_method'])) {
                 $data['payment_method'] = $data['method'];
             } elseif (isset($data['payment_method']) && !isset($data['method'])) {
@@ -522,15 +534,10 @@ class Database {
                 }
             }
 
-            // Test if MySQL is reachable (quick timeout)
+            // In desktop mode, embedded SQLite is always primary to guarantee 100% offline capability
             $tryMysql = true;
-            if (getenv('APP_ENV') === 'desktop' && !empty($sqlitePath) && file_exists($sqlitePath)) {
-                $fp = @fsockopen($config['db_host'], (int)$config['db_port'], $errno, $errstr, 0.15);
-                if (!is_resource($fp)) {
-                    $tryMysql = false;
-                } else {
-                    fclose($fp);
-                }
+            if ((getenv('APP_ENV') === 'desktop' || (function_exists('app_env') && app_env('APP_ENV') === 'desktop')) && !empty($sqlitePath)) {
+                $tryMysql = false;
             }
 
             if ($tryMysql) {

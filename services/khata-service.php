@@ -676,6 +676,40 @@ class KhataService {
                 $userId
             );
 
+            // Auto-enqueue payment entity into pending_operations for cloud sync
+            try {
+                $deviceId = $_SERVER['HTTP_X_DEVICE_ID'] ?? (getenv('YBT_DEVICE_ID') ?: 'desktop-default');
+                $custUuid = Database::fetchColumn("SELECT uuid FROM customers WHERE id = ?", [$customerId]) ?: generateUuidV4();
+                $payPayload = [
+                    'uuid' => $paymentUuid,
+                    'customer_id' => $customerId,
+                    'customer_uuid' => $custUuid,
+                    'payment_number' => $paymentNumber,
+                    'payment_method' => $method,
+                    'method' => $method,
+                    'amount' => $amount,
+                    'payment_date' => $paymentDate,
+                    'reference_number' => $ref,
+                    'reference' => $ref,
+                    'notes' => $notes,
+                    'allocations' => $allocatedInvoices
+                ];
+                Database::insert('pending_operations', [
+                    'operation_uuid' => generateUuidV4(),
+                    'business_id' => $businessId,
+                    'device_id' => $deviceId,
+                    'entity_type' => 'payments',
+                    'entity_uuid' => $paymentUuid,
+                    'operation_type' => 'insert',
+                    'payload_json' => json_encode($payPayload),
+                    'retry_count' => 0,
+                    'status' => 'pending',
+                    'created_at' => date('Y-m-d H:i:s')
+                ]);
+            } catch (\Throwable $qe) {
+                error_log("Non-blocking: Failed to enqueue payment: " . $qe->getMessage());
+            }
+
             ActivityLog::log(
                 $businessId,
                 $userId,

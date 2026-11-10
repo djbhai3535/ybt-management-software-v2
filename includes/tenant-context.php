@@ -47,6 +47,20 @@ final class TenantContext {
     }
 
     /**
+     * Get active tenant name.
+     */
+    public static function name(): string {
+        return self::$currentTenantData['name'] ?? 'Local Business';
+    }
+
+    /**
+     * Get active tenant default currency.
+     */
+    public static function currency(): string {
+        return self::$currentTenantData['default_currency'] ?? 'PKR';
+    }
+
+    /**
      * Assert that a target business ID strictly matches the active tenant context.
      * Prevents Insecure Direct Object Reference (IDOR) attacks.
      */

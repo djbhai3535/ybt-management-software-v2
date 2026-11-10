@@ -28,7 +28,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         } elseif ($catId <= 0) {
             Flash::error('Please select an expense category.');
         } else {
+            $expUuid = generateUuidV4();
             $expId = Database::insert('expenses', [
+                'uuid' => $expUuid,
                 'business_id' => $businessId,
                 'category_id' => $catId,
                 'description' => $desc,
@@ -44,6 +46,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 'status' => 'active',
                 'created_by' => $userId
             ]);
+
+            // Auto-enqueue expense into pending_operations for cloud sync
+            try {
+                $deviceId = $_SERVER['HTTP_X_DEVICE_ID'] ?? (getenv('YBT_DEVICE_ID') ?: 'desktop-default');
+                $expPayload = [
+                    'uuid' => $expUuid,
+                    'category_id' => $catId,
+                    'description' => $desc,
+                    'amount' => $amount,
+                    'expense_date' => $_POST['expense_date'] ?? date('Y-m-d'),
+                    'payment_method' => $_POST['method'] ?? 'bank_transfer',
+                    'payee' => trim($_POST['vendor'] ?? ''),
+                    'reference_number' => trim($_POST['reference'] ?? '')
+                ];
+                Database::insert('pending_operations', [
+                    'operation_uuid' => generateUuidV4(),
+                    'business_id' => $businessId,
+                    'device_id' => $deviceId,
+                    'entity_type' => 'expenses',
+                    'entity_uuid' => $expUuid,
+                    'operation_type' => 'insert',
+                    'payload_json' => json_encode($expPayload),
+                    'retry_count' => 0,
+                    'status' => 'pending',
+                    'created_at' => date('Y-m-d H:i:s')
+                ]);
+            } catch (\Throwable $qe) {
+                error_log("Non-blocking: Failed to enqueue expense: " . $qe->getMessage());
+            }
 
             ActivityLog::log($businessId, $userId, 'expense_logged', 'expense', $expId, "Logged expense '{$desc}' of ₹" . number_format($amount, 2));
             Flash::success("Expense logged successfully.");

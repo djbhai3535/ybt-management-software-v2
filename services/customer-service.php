@@ -201,6 +201,42 @@ class CustomerService {
             'updated_at' => date('Y-m-d H:i:s')
         ]);
 
+        // Auto-enqueue customer creation into pending_operations for cloud sync
+        try {
+            $custUuid = Database::fetchColumn("SELECT uuid FROM customers WHERE id = ?", [$customerId]) ?: generateUuidV4();
+            $deviceId = $_SERVER['HTTP_X_DEVICE_ID'] ?? (getenv('YBT_DEVICE_ID') ?: 'desktop-default');
+            $custPayload = [
+                'uuid' => $custUuid,
+                'name' => trim($data['name']),
+                'company_name' => trim($data['company_name'] ?? ''),
+                'email' => trim($data['email'] ?? ''),
+                'phone' => trim($data['phone'] ?? ''),
+                'billing_address_line1' => $addr,
+                'billing_city' => $city,
+                'billing_state' => $state,
+                'billing_postal_code' => $pin,
+                'gstin' => strtoupper(trim($data['gstin'] ?? '')),
+                'notes' => trim($data['notes'] ?? ''),
+                'opening_balance' => $opBal,
+                'opening_balance_type' => $opType
+            ];
+
+            Database::insert('pending_operations', [
+                'operation_uuid' => generateUuidV4(),
+                'business_id' => $businessId,
+                'device_id' => $deviceId,
+                'entity_type' => 'customers',
+                'entity_uuid' => $custUuid,
+                'operation_type' => 'insert',
+                'payload_json' => json_encode($custPayload),
+                'retry_count' => 0,
+                'status' => 'pending',
+                'created_at' => date('Y-m-d H:i:s')
+            ]);
+        } catch (\Throwable $qe) {
+            error_log("Non-blocking: Failed to enqueue customer creation: " . $qe->getMessage());
+        }
+
         if ($opBal > 0) {
             KhataService::setOpeningBalance(
                 $customerId,
@@ -245,7 +281,45 @@ class CustomerService {
             'updated_at' => date('Y-m-d H:i:s')
         ];
 
-        return Database::update('customers', $updateData, 'id = ? AND business_id = ?', [$customerId, $businessId]) > 0;
+        $updated = Database::update('customers', $updateData, 'id = ? AND business_id = ?', [$customerId, $businessId]) > 0;
+
+        if ($updated) {
+            // Auto-enqueue customer update into pending_operations for cloud sync
+            try {
+                $custUuid = Database::fetchColumn("SELECT uuid FROM customers WHERE id = ?", [$customerId]) ?: generateUuidV4();
+                $deviceId = $_SERVER['HTTP_X_DEVICE_ID'] ?? (getenv('YBT_DEVICE_ID') ?: 'desktop-default');
+                $custPayload = [
+                    'uuid' => $custUuid,
+                    'name' => trim($data['name']),
+                    'company_name' => trim($data['company_name'] ?? ''),
+                    'email' => trim($data['email'] ?? ''),
+                    'phone' => trim($data['phone'] ?? ''),
+                    'billing_address_line1' => $addr,
+                    'billing_city' => $city,
+                    'billing_state' => $state,
+                    'billing_postal_code' => $pin,
+                    'gstin' => strtoupper(trim($data['gstin'] ?? '')),
+                    'notes' => trim($data['notes'] ?? '')
+                ];
+
+                Database::insert('pending_operations', [
+                    'operation_uuid' => generateUuidV4(),
+                    'business_id' => $businessId,
+                    'device_id' => $deviceId,
+                    'entity_type' => 'customers',
+                    'entity_uuid' => $custUuid,
+                    'operation_type' => 'update',
+                    'payload_json' => json_encode($custPayload),
+                    'retry_count' => 0,
+                    'status' => 'pending',
+                    'created_at' => date('Y-m-d H:i:s')
+                ]);
+            } catch (\Throwable $qe) {
+                error_log("Non-blocking: Failed to enqueue customer update: " . $qe->getMessage());
+            }
+        }
+
+        return $updated;
     }
 
     /**

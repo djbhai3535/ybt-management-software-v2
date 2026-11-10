@@ -200,6 +200,60 @@ class InvoiceService {
                 KhataService::recordInvoiceDebit($businessId, $invoiceId, $userId);
             }
 
+            // Auto-enqueue invoice creation into pending_operations for cloud sync
+            try {
+                $deviceId = $_SERVER['HTTP_X_DEVICE_ID'] ?? (getenv('YBT_DEVICE_ID') ?: 'desktop-default');
+                $invoicePayload = [
+                    'uuid' => $invoiceRecord['uuid'],
+                    'invoice_number' => $invoiceNumber,
+                    'customer_id' => $customer['id'],
+                    'customer_uuid' => $customer['uuid'] ?? null,
+                    'invoice_date' => $invoiceDate,
+                    'issue_date' => $invoiceDate,
+                    'due_date' => $dueDate,
+                    'subtotal' => $subtotal,
+                    'discount_total' => $totalDiscount + $overallDiscount,
+                    'discount_amount' => $totalDiscount + $overallDiscount,
+                    'tax_total' => $taxTotal,
+                    'tax_amount' => $taxTotal,
+                    'grand_total' => $grandTotal,
+                    'total_amount' => $grandTotal,
+                    'status' => $status,
+                    'notes' => $invoiceRecord['notes'],
+                    'terms' => $invoiceRecord['terms'],
+                    'items' => array_map(function($pi) {
+                        return [
+                            'product_id' => $pi['product_id'],
+                            'description' => $pi['description'],
+                            'item_name' => $pi['description'],
+                            'quantity' => $pi['quantity'],
+                            'unit' => $pi['unit'],
+                            'unit_price' => $pi['unit_price'],
+                            'discount_amount' => $pi['discount_amount'],
+                            'tax_rate' => $pi['tax_rate'],
+                            'tax_amount' => $pi['tax_amount'],
+                            'line_total' => $pi['line_total'],
+                            'total_amount' => $pi['line_total']
+                        ];
+                    }, $processedItems)
+                ];
+
+                Database::insert('pending_operations', [
+                    'operation_uuid' => generateUuidV4(),
+                    'business_id' => $businessId,
+                    'device_id' => $deviceId,
+                    'entity_type' => 'invoices',
+                    'entity_uuid' => $invoiceRecord['uuid'],
+                    'operation_type' => 'insert',
+                    'payload_json' => json_encode($invoicePayload),
+                    'retry_count' => 0,
+                    'status' => 'pending',
+                    'created_at' => date('Y-m-d H:i:s')
+                ]);
+            } catch (\Throwable $qe) {
+                error_log("Non-blocking: Failed to enqueue invoice: " . $qe->getMessage());
+            }
+
             ActivityLog::log($businessId, $userId, 'invoice_created', 'invoice', $invoiceId, "Created invoice {$invoiceNumber} for ₹" . number_format($grandTotal, 2));
 
             $db->commit();

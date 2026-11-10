@@ -4,7 +4,7 @@ version = "1.0.2"
 description = "DJ CRM Software — Commercial Windows Desktop CRM Edition"
 authors = ["DJ CRM Team"]
 license = "Proprietary"
-repository = "https://github.com/djbhai3535/dj-crm-software-firebase.git"
+repository = "https://github.com/djbhai3535/ybt-management-software-v2.git"
 edition = "2021"
 
 [build-dependencies]
